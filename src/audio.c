@@ -216,8 +216,27 @@ static uint64_t file_size(const char *path)
     return n > 0 ? (uint64_t)n : 0;
 }
 
+static void open_url(const char *url, const char *name);
+#define STATION_SEP '\x1F'          // a station in the play list: "url<SEP>name"
+
 static bool open_track(int i)
 {
+    if (i >= 0 && i < pl_n && u_is_url(pl[i]))
+    {
+        // a station of a list (as the engine: the list is the play list)
+        char url[2048], name[256] = "";
+        u_copy(url, sizeof url, pl[i]);
+        char *sep = strchr(url, STATION_SEP);
+        if (sep) { *sep = 0; u_copy(name, sizeof name, sep + 1); }
+        pl_pos = i;
+        open_url(url, name);
+        sys_lock(st_lock);
+        st.pl_pos = i;
+        st.pl_count = pl_n;
+        st_changed();
+        sys_unlock(st_lock);
+        return true;
+    }
     close_source();
     flush_out();
     eq_reset();
@@ -464,7 +483,9 @@ static void do_cmd(cmd_t *c)
     case C_PREV:
         if (pl_n)
         {
-            int n = pick_next(c->type == C_NEXT ? 1 : -1);
+            // (as the engine: N and P go round the list; shuffle picks one)
+            int n = (st.mode & MODE_SHUFFLE) ? pick_next(1)
+                  : c->type == C_NEXT ? (pl_pos + 1) % pl_n : (pl_pos + pl_n - 1) % pl_n;
             if (c->type == C_PREV && elapsed_now() >= 3 && src == SRC_FILE) n = pl_pos;   // back to the start first
             if (n < 0) n = 0;
             if (!open_track(n)) stop_all();
@@ -771,6 +792,19 @@ void audio_play_files(const char *const *files, int count, int start)
     if (count <= 0) return;
     cmd_t c = { C_FILES, start, NULL, NULL, malloc(sizeof(char *) * (size_t)count), count };
     for (int i = 0; i < count; i++) c.files[i] = strdup(files[i]);
+    post(c);
+}
+
+void audio_play_stations(const char *const *urls, const char *const *names, int count, int start)
+{
+    if (count <= 0) return;
+    cmd_t c = { C_FILES, start, NULL, NULL, malloc(sizeof(char *) * (size_t)count), count };
+    for (int i = 0; i < count; i++)
+    {
+        size_t n = strlen(urls[i]) + strlen(names[i]) + 2;
+        c.files[i] = malloc(n);
+        snprintf(c.files[i], n, "%s%c%s", urls[i], STATION_SEP, names[i]);
+    }
     post(c);
 }
 

@@ -69,8 +69,42 @@ static uint8_t sin64[256];
 static uint8_t pl_v[176][32];
 static const uint8_t pl_cols[12] = { 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 15 };
 static const uint8_t dither[2][8] = { { 0x00,0x80,0x88,0xA8,0xAA,0xEA,0xEE,0xFE }, { 0x00,0x08,0x88,0x8A,0xAA,0xAE,0xEE,0xEF } };
-static uint32_t pl_phase;               // the colour wheel (in 1/256 steps)
+static int      pl_phase = -1;          // the colour wheel: 0..191 (48 hues, 4 steps each)
 static uint32_t pl_last;
+static const uint8_t wheel[48][3] = {
+    {7,0,0},{7,1,0},{7,2,0},{7,3,0},{7,4,0},{7,4,0},{7,5,0},{7,6,0},{7,7,0},{6,7,0},{5,7,0},{4,7,0},{4,7,0},{3,7,0},{2,7,0},{1,7,0},
+    {0,7,0},{0,7,1},{0,7,2},{0,7,3},{0,7,4},{0,7,4},{0,7,5},{0,7,6},{0,7,7},{0,6,7},{0,5,7},{0,4,7},{0,4,7},{0,3,7},{0,2,7},{0,1,7},
+    {0,0,7},{1,0,7},{2,0,7},{3,0,7},{4,0,7},{4,0,7},{5,0,7},{6,0,7},{7,0,7},{7,0,6},{7,0,5},{7,0,4},{7,0,4},{7,0,3},{7,0,2},{7,0,1},
+};
+static const uint8_t bright[8][8] = {
+    {0,0,0,0,0,0,0,0},{0,0,0,0,0,0,0,1},{0,0,0,0,1,1,1,2},{0,0,0,1,1,2,2,3},
+    {0,0,1,1,2,2,3,4},{0,0,1,2,2,3,4,5},{0,0,1,2,3,4,5,6},{0,1,2,3,4,5,6,7},
+};
+
+// as PICOAMP: the picture stays, its 12 palette colours turn round the colour
+// wheel, 25 steps a second, 1..16 steps further each time (louder: more),
+// brighter with the bass
+static void plasma_colours(void)
+{
+    uint32_t now = sys_millis();
+    if (pl_phase < 0) { pl_phase = 0; pl_last = now; }
+    if (now - pl_last > 1000) pl_last = now - 40;
+    while (now - pl_last >= 40)
+    {
+        pl_last += 40;
+        pl_phase = (pl_phase + 1 + (((ui_viz.vu[0] + ui_viz.vu[1]) >> 4) & 15)) % 192;
+    }
+    int b = ui_viz.level[0];
+    if (ui_viz.level[1] > b) b = ui_viz.level[1];
+    if (ui_viz.level[2] > b) b = ui_viz.level[2];
+    int br = 4 + ((b >> 3) & 3);
+    if (br > 7) br = 7;
+    for (int c = 0; c < 12; c++)
+    {
+        const uint8_t *w = wheel[(pl_phase / 4 + c * 4) % 48];
+        gfx_set_rgb(pl_cols[c], bright[br][w[0]], bright[br][w[1]], bright[br][w[2]]);
+    }
+}
 
 static void plasma_build(void)
 {
@@ -87,20 +121,13 @@ static void plasma_build(void)
 
 static void draw_plasma(void)
 {
-    // faster when louder
-    uint32_t now = sys_millis();
-    int loud = (ui_viz.vu[0] + ui_viz.vu[1]) / 2;
-    uint32_t dt = now - pl_last;
-    pl_last = now;
-    if (dt > 200) dt = 200;
-    pl_phase += dt * (uint32_t)(2 + loud * loud / 24) / 4;
-    int shift = (int)(pl_phase / 256) % 12;
+    plasma_colours();
     for (int y = 0; y < 176; y++)
         for (int c = 0; c < 32; c++)
         {
             int v = pl_v[y][c] * 3;              // v * 3 / 64: the step (0..11), then 8 dither steps
             int step = (v >> 6) % 12, frac = (v >> 3) & 7;
-            uint8_t lo = pl_cols[(step + shift) % 12], hi = pl_cols[(step + 1 + shift) % 12];
+            uint8_t lo = pl_cols[step], hi = pl_cols[(step + 1) % 12];
             uint8_t pat = dither[y & 1][frac];
             for (int x = 0; x < 8; x++) gfx_fb[8 + y][c * 8 + x] = (pat & (0x80 >> x)) ? hi : lo;
         }
@@ -109,8 +136,17 @@ static void draw_plasma(void)
 static void fs_open(void)
 {
     if (!sin64[64]) plasma_build();
-    pl_last = sys_millis();
+    pl_phase = -1;
 }
+
+static void fs_set(int m)
+{
+    fs_mode = (m + FS_N) % FS_N;
+    gfx_reset_palette();
+    pl_phase = -1;
+}
+
+static void fs_close(void) { gfx_reset_palette(); }
 
 static void fs_frame(void)
 {
@@ -133,8 +169,8 @@ static void fs_key(int k)
     int u = (k >= 'a' && k <= 'z') ? k - 32 : k;
     switch (u)
     {
-    case K_LEFT: fs_mode = (fs_mode + FS_N - 1) % FS_N; return;
-    case K_RIGHT: case 'V': fs_mode = (fs_mode + 1) % FS_N; return;
+    case K_LEFT: fs_set(fs_mode - 1); return;
+    case K_RIGHT: case 'V': fs_set(fs_mode + 1); return;
     case 'Z': case K_ESC: case K_ENTER: case K_BS: ui_page(PG_PLAYER); return;
     case 'G': return;
     }
@@ -144,8 +180,8 @@ static void fs_key(int k)
 static void fs_mouse(int x, int y, int b)
 {
     (void)x; (void)y;
-    if (b == MOUSE_LEFT) fs_mode = (fs_mode + 1) % FS_N;
+    if (b == MOUSE_LEFT) fs_set(fs_mode + 1);
     else if (b == MOUSE_RIGHT) ui_page(PG_PLAYER);
 }
 
-const page_t page_full = { fs_open, fs_frame, fs_key, fs_mouse, NULL };
+const page_t page_full = { fs_open, fs_frame, fs_key, fs_mouse, fs_close, NULL };

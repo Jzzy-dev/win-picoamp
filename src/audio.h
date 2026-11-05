@@ -37,6 +37,8 @@ void audio_shutdown(void);
 // play files[start] of a list of files (UTF-8 paths); the list is copied
 void audio_play_files(const char *const *files, int count, int start);
 void audio_play_url(const char *url, const char *name);
+// a list's stations: the play list (N / P the next / previous station)
+void audio_play_stations(const char *const *urls, const char *const *names, int count, int start);
 void audio_toggle_pause(void);
 void audio_stop(void);
 void audio_next(void);

@@ -273,7 +273,7 @@ static void wx_frame(void)
         ctext(5, 0, 32, w.error[0] ? w.error : "Waiting for the weather (it needs the internet)", COL(WHITE, NAVY));
         return;
     }
-    // the big picture: a step every 100 ms
+    // the big picture: a step every 200 ms
     int bk = kind_of(w.code, w.is_day);
     if (bk != big_kind)
     {
@@ -284,7 +284,7 @@ static void wx_frame(void)
         gfx_set_rgb(G_THUN, 3, 3, 4);
     }
     uint32_t now = sys_millis();
-    if (now - step_ms >= 100)
+    if (now - step_ms >= 200)
     {
         step_ms = now;
         phase++;

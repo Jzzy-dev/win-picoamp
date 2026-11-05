@@ -256,7 +256,24 @@ static void activate(void)
         return;
     }
     if (e->type == E_FOLDER) { open_place(e->target, NULL); return; }
-    if (e->type == E_STATION) { audio_play_url(e->target, e->name); rd_click(e->uuid); return; }
+    if (e->type == E_STATION)
+    {
+        // the list's stations are the play list, as on the MSX (N / P)
+        const char **u = malloc(sizeof(char *) * (size_t)list.count), **nm = malloc(sizeof(char *) * (size_t)list.count);
+        int n = 0, start = 0;
+        for (int i = 0; i < list.count; i++)
+            if (list.e[i].type == E_STATION)
+            {
+                if (i == sel) start = n;
+                u[n] = list.e[i].target;
+                nm[n++] = list.e[i].name;
+            }
+        audio_play_stations(u, nm, n, start);
+        free(u);
+        free(nm);
+        rd_click(e->uuid);
+        return;
+    }
     // a file: the folder's music files are the play list
     int n = 0, start = 0;
     const char **files = malloc(sizeof(char *) * (size_t)list.count);
@@ -422,14 +439,20 @@ static void draw_bar(int col, int level, int pk_level)
 
 static void draw_scope(void)
 {
+    // a new trace every 80 ms (the MSX draws one at most every 40 ms; on a PC
+    // screen that is restless)
+    static int8_t snap[VIZ_WAVE];
+    static uint32_t snap_ms;
+    uint32_t now = sys_millis();
+    if (now - snap_ms >= 80) { snap_ms = now; memcpy(snap, viz.scope, sizeof snap); }
     // 192 x 80 at (8, 48): 64 points, 3 pixels apart, joined by vertical lines
     static uint8_t px[80][192];
     memset(px, 0, sizeof px);
     int prev = -1;
     for (int i = 0; i < VIZ_WAVE; i++)
     {
-        int y = 40 - (viz.scope[i] * 5) / 8;
-        if (viz.scope[i] < 0) y = 40 - (int)((viz.scope[i] * 5 - 7) / 8);      // (the Z80's floor)
+        int y = 40 - (snap[i] * 5) / 8;
+        if (snap[i] < 0) y = 40 - (int)((snap[i] * 5 - 7) / 8);      // (the Z80's floor)
         if (y < 0) y = 0;
         if (y > 79) y = 79;
         if (prev < 0) prev = y;
@@ -674,9 +697,15 @@ static void draw_help(void)
     static const uint8_t beat[] = { COL(WHITE, RED), COL(NAVY, ORANGE), COL(NAVY, YELLOW), COL(NAVY, GREEN),
                                     COL(NAVY, CYAN), COL(WHITE, BLUE), COL(WHITE, MAGENTA) };
     static const struct { int col; const char *w; } words[] = { { 11, "by" }, { 14, "JZZY" }, { 19, "&" }, { 21, "CLAUDE" }, { 28, "2026" } };
+    // a step round the colours on a beat: the bass jumps up (at most 3 a second)
+    static int last_bass, step;
+    static uint32_t last_beat;
     int bass = (viz.level[0] + viz.level[1] + viz.level[2] + viz.level[3]) / 4;
+    uint32_t now = sys_millis();
+    if (bass >= last_bass + 4 && bass > 12 && now - last_beat >= 330) { step++; last_beat = now; }
+    last_bass = bass;
     for (unsigned i = 0; i < sizeof words / sizeof words[0]; i++)
-        gfx_str(22, words[i].col, words[i].w, (int)strlen(words[i].w), beat[(i + (unsigned)bass / 3) % 7]);
+        gfx_str(22, words[i].col, words[i].w, (int)strlen(words[i].w), beat[(i + (unsigned)step) % 7]);
 }
 
 // ---------------- pages ----------------
@@ -895,6 +924,7 @@ void ui_mouse(int x, int y, int button)
     }
     if (row == 5 && col >= 1 && col <= 9) { if (eq_open) eq_open = false; else cfg.view ^= 1; return; }
     if (row == 5 && col >= 11 && col <= 19) { ui_eq_next(); return; }
+    if (!eq_open && row >= 6 && row <= 16 && col >= 1 && col <= 24) { cfg.view ^= 1; return; }
     if (row >= LIST_ROW && row < LIST_ROW + LIST_N)
     {
         if (col == 31) { move(row == LIST_ROW ? -LIST_N : row == LIST_ROW + LIST_N - 1 ? LIST_N : 0); return; }
