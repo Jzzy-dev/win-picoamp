@@ -104,4 +104,14 @@ check "weather: now" "$out" "weather place='Sydney, Nova Scotia, CA' now=8.4 cod
 check "weather: the days" "$out" "2026-11-08 Sun code=71 max=31 min=-62 rain=65%"
 grep -q "^alarm_time = 06:45" $T/cfg/picoamp.ini && grep -q "^alarm_days = weekdays" $T/cfg/picoamp.ini && echo "ok   alarm kept in picoamp.ini" || { echo "FAIL alarm in ini"; fail=1; }
 
+# the news: a feed by its address, the headlines, a story, its full article, the catalogue
+out=$(run "key T; wait 100; key A; type http://localhost:$WEB/feeds/rss.xml; key Enter; wait 800; key End; key Enter; wait 800; page; shot $T/news.png 2; key Down; key Enter; key Enter; wait 1000; page; shot $T/article.png 2; key Esc; key F; key Right; key Enter; key Down; key Enter; wait 50; page; key T")
+check "news: a feed by its address" "$out" "6 Test News = http://localhost:$WEB/feeds/rss.xml"
+check "news: headlines newest first" "$out" "news headlines feed='Test News' state=2 stories=30"
+check "news: entities" "$out" "Story 25 & more"
+check "news: the full article" "$out" "| Paragraph 0 of the article 24."
+printf '%s\n' "$out" | grep -q "Footer text\|Menu Home" && { echo "FAIL news: menus or footer in the article"; fail=1; } || echo "ok   news: no menus or footers"
+check "news: from the catalogue" "$out" "7 BBC News, top stories = https://feeds.bbci.co.uk/news/rss.xml"
+grep -q 'xmlUrl="http://localhost' $T/cfg/MyFeeds.opml && echo "ok   news: MyFeeds.opml" || { echo "FAIL MyFeeds.opml"; fail=1; }
+
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

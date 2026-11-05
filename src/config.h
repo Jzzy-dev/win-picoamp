@@ -38,6 +38,8 @@ typedef struct
     int    alarm_h, alarm_m;
     char   alarm_play[2048]; // a station's URL or a file
     char   alarm_name[256];
+    // [news]
+    bool   news_by_feed;     // the feed's order (else newest first)
 } config;
 
 extern config cfg;

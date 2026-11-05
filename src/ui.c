@@ -941,6 +941,13 @@ void ui_drop(const char *const *paths, int n)
             ui_message(note, !ok);
             if (ok) open_place("radio:", NULL);
         }
+        else if (u_ends_with_ci(paths[i], ".opml") || u_ends_with_ci(paths[i], ".xml"))
+        {
+            int n = news_import(paths[i]);
+            if (n < 0) snprintf(note, sizeof note, "Cannot read %s", u_basename(paths[i]));
+            else snprintf(note, sizeof note, "%d feeds added to My feeds (T: the news)", n);
+            ui_message(note, n <= 0);
+        }
         else if (sys_is_dir(paths[i])) open_place(paths[i], NULL);
     }
     if (m) audio_play_files(music, m, 0);

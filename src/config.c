@@ -97,6 +97,7 @@ void config_load(void)
         else if (!u_stricmp(k, "alarm_days")) cfg.alarm_weekdays = !u_stricmp(v, "weekdays");
         else if (!u_stricmp(k, "alarm_play")) u_copy(cfg.alarm_play, sizeof cfg.alarm_play, v);
         else if (!u_stricmp(k, "alarm_name")) u_copy(cfg.alarm_name, sizeof cfg.alarm_name, v);
+        else if (!u_stricmp(k, "sort")) cfg.news_by_feed = !u_stricmp(v, "feed");
     }
     free(text);
     if (cfg.volume < 0) cfg.volume = 0;
@@ -138,7 +139,10 @@ void config_save(void)
         "location = %s\r\nplace = %s\r\nlat = %.5f\r\nlon = %.5f\r\n"
         "[alarm]\r\n"
         "; alarm_days: daily or weekdays; alarm_play: a station's address or a music file\r\n"
-        "alarm = %s\r\nalarm_time = %02d:%02d\r\nalarm_days = %s\r\nalarm_play = %s\r\nalarm_name = %s\r\n",
+        "alarm = %s\r\nalarm_time = %02d:%02d\r\nalarm_days = %s\r\nalarm_play = %s\r\nalarm_name = %s\r\n"
+        "[news]\r\n"
+        "; My feeds are in MyFeeds.opml (beside this file); sort: date (newest first) or feed\r\n"
+        "sort = %s\r\n",
         cfg.volume, (cfg.mode & 1) ? "yes" : "no", (cfg.mode & 2) ? "yes" : "no",
         cfg.eq[0], cfg.eq[1], cfg.eq[2], cfg.eq[3], cfg.eq[4], cfg.balance,
         cfg.view ? "scope" : "spectrum", cfg.music_dir, cfg.start_path,
@@ -150,6 +154,6 @@ void config_save(void)
         cfg.clock_spectrum ? "on" : "off",
         cfg.loc_ip ? "ip" : "place", cfg.loc_name, cfg.loc_lat, cfg.loc_lon,
         cfg.alarm_on ? "on" : "off", cfg.alarm_h, cfg.alarm_m, cfg.alarm_weekdays ? "weekdays" : "daily",
-        cfg.alarm_play, cfg.alarm_name);
+        cfg.alarm_play, cfg.alarm_name, cfg.news_by_feed ? "feed" : "date");
     if (n > 0) sys_write_file(ini_path(), buf, (size_t)n);
 }
