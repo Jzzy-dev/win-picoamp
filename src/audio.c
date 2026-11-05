@@ -51,7 +51,8 @@ static volatile bool dec_abort;
 static volatile int      flush_seq, flush_ack;
 static volatile bool     out_paused;
 static volatile uint64_t played;          // device frames since the last flush
-static volatile int      gain_q15 = 32768;
+static volatile int      gain_l = 32768, gain_r = 32768;
+static int               balance = 50;
 
 // the status
 static sys_mutex   *st_lock;
@@ -104,8 +105,12 @@ static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
     if (done)
     {
         viz_feed(o, done, dev_rate);
-        int g = gain_q15;
-        for (ma_uint32 i = 0; i < done * 2; i++) o[i] = (int16_t)(((int32_t)o[i] * g) >> 15);
+        int gl = gain_l, gr = gain_r;
+        for (ma_uint32 i = 0; i < done; i++)
+        {
+            o[2 * i] = (int16_t)(((int32_t)o[2 * i] * gl) >> 15);
+            o[2 * i + 1] = (int16_t)(((int32_t)o[2 * i + 1] * gr) >> 15);
+        }
         played += done;
     }
     if (done < frames) memset(o + done * 2, 0, (size_t)(frames - done) * 4);
@@ -114,7 +119,10 @@ static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
 static void apply_gain(void)
 {
     // as the engine: (100 - volume) / 2 dB down
-    gain_q15 = (muted || volume <= 0) ? 0 : (int)(32768.0 * pow(10.0, -(100 - volume) / 40.0));
+    int g = (muted || volume <= 0) ? 0 : (int)(32768.0 * pow(10.0, -(100 - volume) / 40.0));
+    // the balance takes the other side down (centre: both full)
+    gain_l = balance <= 50 ? g : g * (100 - balance) / 50;
+    gain_r = balance >= 50 ? g : g * balance / 50;
 }
 
 // throw away what is in the ring (and wait until the callback did)
@@ -723,6 +731,12 @@ void audio_set_mute(bool m)
     st.muted = m;
     st_changed();
     sys_unlock(st_lock);
+}
+
+void audio_set_balance(int b)
+{
+    balance = b < 0 ? 0 : b > 100 ? 100 : b;
+    apply_gain();
 }
 
 void audio_set_mode(int mode)

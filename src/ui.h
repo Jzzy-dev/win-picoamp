@@ -9,7 +9,7 @@ enum
     K_UP = 0x100, K_DOWN, K_LEFT, K_RIGHT, K_PGUP, K_PGDN, K_HOME, K_END, K_DEL,
     K_MEDIA_PLAY, K_MEDIA_STOP, K_MEDIA_NEXT, K_MEDIA_PREV, K_VOL_UP, K_VOL_DOWN, K_VOL_MUTE
 };
-enum { MOUSE_LEFT = 1, MOUSE_RIGHT = 2, MOUSE_WHEEL_UP = 4, MOUSE_WHEEL_DOWN = 5 };
+enum { MOUSE_LEFT = 1, MOUSE_RIGHT = 2, MOUSE_WHEEL_UP = 4, MOUSE_WHEEL_DOWN = 5, MOUSE_DRAG = 6, MOUSE_UP = 7 };
 
 void ui_init(void);
 void ui_frame(void);                      // once a frame: read the player, draw

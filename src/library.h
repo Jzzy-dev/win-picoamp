@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-enum { E_FOLDER = 1, E_FILE = 2, E_STATION = 6 };
+enum { E_PARENT = 0, E_FOLDER = 1, E_FILE = 2, E_STATION = 6, E_MORE = 7 };
 
 typedef struct
 {

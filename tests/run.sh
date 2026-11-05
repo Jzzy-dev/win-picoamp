@@ -37,7 +37,7 @@ check "top list" "$out" "shot $T/root.png: ok"
 
 # a file: tags, format, time, next, seek
 sed -i "s|^folder = .*|folder = $PWD/$T/Music|" $T/cfg/picoamp.ini
-out=$(run "key Down; key Enter; wait 2200; status; shot $T/playing.png 3; key .; wait 300; status; key N; wait 1200; status")
+out=$(run "key Down; key Down; key Enter; wait 2200; status; shot $T/playing.png 3; key .; wait 300; status; key N; wait 1200; status")
 check "mp3 tags" "$out" "title='Sine Café Song' artist='Unit Tester'"
 check "mp3 format" "$out" "rate=44100 ch=2 br=192"
 check "plays" "$out" "state=1 elapsed=2/30"
@@ -47,18 +47,26 @@ check "mono 22 kHz" "$out" "rate=22050 ch=1 br=64"
 
 # the radio: ICY titles, ICY 200 OK, .pls, an AAC station
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
-out=$(run "key Enter; wait 2500; status; shot $T/radio.png 3; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 1500; status; key Down; key Enter; wait 2500; status")
+out=$(run "key Down; key Enter; wait 2500; status; shot $T/radio.png 3; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 1500; status; key Down; key Enter; wait 2500; status")
 check "radio plays" "$out" "state=1 .*stream=1 buf=0.*title='Artist [A-Za-z]* - Song .*album='Local FM'"
 check "ICY 200 OK" "$out" "state=1 .*album='Old SHOUTcast'"
 check ".pls list" "$out" "state=1 .*album='Via PLS'"
 check "AAC refused" "$out" "err='AAC streams are not supported yet'"
 check "joined mid-frame" "$out" "state=1 .*stream=1 buf=0.*album='Live'"
 
+# the equalizer screen and the full screen pictures
+sed -i "s|^folder = .*|folder = $PWD/$T/Music|" $T/cfg/picoamp.ini
+out=$(run "key G; key Right; key Up; key Up; key Up; key Left; key Left; key Up; wait 50; shot $T/eq.png 3; key G; key Z; wait 300; shot $T/bars.png 3; key V; key V; wait 300; shot $T/plasma.png 3; key Z")
+grep -q "^eq = 0,3,0,0,0" $T/cfg/picoamp.ini && echo "ok   equalizer: band 250 Hz +3" || { echo "FAIL equalizer"; grep "^eq" $T/cfg/picoamp.ini; fail=1; }
+grep -q "^balance = 55" $T/cfg/picoamp.ini && echo "ok   balance" || { echo "FAIL balance"; grep "^balance" $T/cfg/picoamp.ini; fail=1; }
+sed -i "s|^eq = .*|eq = 0,0,0,0,0|; s|^balance = .*|balance = 50|" $T/cfg/picoamp.ini
+
 # favourites: F adds, D removes
-out=$(run "key Home; key F; key BS; key Home; key Enter; wait 100; shot $T/favs.png 3")
+sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
+out=$(run "key Home; key Down; key F; key BS; key Home; key Down; key Enter; wait 100; shot $T/favs.png 3")
 grep -q "localhost:$PORT/stream.mp3" $T/cfg/Radio/Favourites.m3u && echo "ok   F adds a favourite" || { echo "FAIL favourite add"; fail=1; }
 sed -i "s|^folder = .*|folder = radio:Favourites.m3u|" $T/cfg/picoamp.ini
-out=$(run "key Home; key D")
+out=$(run "key Home; key Down; key D")
 grep -q "localhost" $T/cfg/Radio/Favourites.m3u && { echo "FAIL favourite del"; fail=1; } || echo "ok   D removes it"
 
 # a dropped .m3u lands in the Radio folder

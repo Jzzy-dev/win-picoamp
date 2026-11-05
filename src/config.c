@@ -12,6 +12,7 @@ static void defaults(void)
 {
     memset(&cfg, 0, sizeof cfg);
     cfg.volume = 80;
+    cfg.balance = 50;
     u_copy(cfg.music_dir, sizeof cfg.music_dir, sys_music_dir());
     cfg.win_x = cfg.win_y = -1;
     cfg.win_w = 768;
@@ -62,6 +63,7 @@ void config_load(void)
                 while (*p == ',' || *p == ' ') p++;
             }
         }
+        else if (!u_stricmp(k, "balance")) { cfg.balance = atoi(v); if (cfg.balance < 0 || cfg.balance > 100) cfg.balance = 50; }
         else if (!u_stricmp(k, "view")) cfg.view = !u_stricmp(v, "scope") ? 1 : 0;
         else if (!u_stricmp(k, "music")) { if (*v) u_copy(cfg.music_dir, sizeof cfg.music_dir, v); }
         else if (!u_stricmp(k, "folder")) u_copy(cfg.start_path, sizeof cfg.start_path, v);
@@ -92,6 +94,8 @@ void config_save(void)
         "volume = %d\r\nrepeat = %s\r\nshuffle = %s\r\n"
         "; equalizer: 60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz in dB (-12..12)\r\n"
         "eq = %d,%d,%d,%d,%d\r\n"
+        "; balance: 0 left, 50 centre, 100 right\r\n"
+        "balance = %d\r\n"
         "view = %s\r\n"
         "; the folder shown as [Music] in the list\r\n"
         "music = %s\r\n"
@@ -102,7 +106,7 @@ void config_save(void)
         "; fit: as large as fits, 4:3, sharp; integer: whole multiples only; stretch: fill the window\r\n"
         "scale = %s\r\nscanlines = %s\r\non_top = %s\r\n",
         cfg.volume, (cfg.mode & 1) ? "yes" : "no", (cfg.mode & 2) ? "yes" : "no",
-        cfg.eq[0], cfg.eq[1], cfg.eq[2], cfg.eq[3], cfg.eq[4],
+        cfg.eq[0], cfg.eq[1], cfg.eq[2], cfg.eq[3], cfg.eq[4], cfg.balance,
         cfg.view ? "scope" : "spectrum", cfg.music_dir, cfg.start_path,
         cfg.win_x, cfg.win_y, cfg.win_w, cfg.win_h,
         cfg.maximized ? "yes" : "no", cfg.fullscreen ? "yes" : "no",

@@ -3,8 +3,19 @@
 #include "gfx.h"
 #include "assets.h"
 
-uint8_t  gfx_fb[GFX_H][GFX_W];
+uint8_t  gfx_fb[GFX_MAXH][GFX_MAXW];
 uint32_t gfx_pal[16];
+int      gfx_w = GFX_W, gfx_h = GFX_H;
+
+void gfx_set_size(int w, int h)
+{
+    if (w < 1 || w > GFX_MAXW) w = GFX_W;
+    if (h < 1 || h > GFX_MAXH) h = GFX_H;
+    gfx_w = w;
+    gfx_h = h;
+}
+
+const uint8_t *gfx_glyph(unsigned ch) { return &font8[(ch & 255) * 8]; }
 
 // PICOAMP's palette: 16 x (0RRR0BBB, 00000GGG)
 static const uint8_t palette[32] = {
@@ -134,7 +145,42 @@ void gfx_colon(int row, int col, uint8_t colour)
 
 void gfx_pset(int x, int y, uint8_t index)
 {
-    if (x >= 0 && x < GFX_W && y >= 0 && y < GFX_H) gfx_fb[y][x] = index & 15;
+    if (x >= 0 && x < gfx_w && y >= 0 && y < gfx_h) gfx_fb[y][x] = index & 15;
+}
+
+void gfx_text_at(int x, int y, const char *text, uint8_t fg, int bg)
+{
+    uint8_t s[512];
+    int n = gfx_to_msx(text ? text : "", s, sizeof s);
+    for (int i = 0; i < n; i++, x += 8)
+    {
+        const uint8_t *g = &font8[s[i] * 8];
+        for (int r = 0; r < 8; r++)
+            for (int b = 0; b < 8; b++)
+            {
+                if (g[r] & (0x80 >> b)) gfx_pset(x + b, y + r, fg);
+                else if (bg >= 0) gfx_pset(x + b, y + r, (uint8_t)bg);
+            }
+    }
+}
+
+int gfx_text6_at(int x, int y, const char *text, uint8_t fg, int bg, int max_px)
+{
+    uint8_t s[1024];
+    int n = gfx_to_msx(text ? text : "", s, sizeof s);
+    int x0 = x;
+    for (int i = 0; i < n; i++, x += 6)
+    {
+        if (max_px > 0 && x + 6 > x0 + max_px) break;
+        const uint8_t *g = &font8[s[i] * 8];
+        for (int r = 0; r < 8; r++)
+            for (int b = 0; b < 6; b++)
+            {
+                if (g[r] & (0x80 >> b)) gfx_pset(x + b, y + r, fg);
+                else if (bg >= 0) gfx_pset(x + b, y + r, (uint8_t)bg);
+            }
+    }
+    return x;
 }
 
 void gfx_hline(int x, int y, int w, uint8_t index)
@@ -196,6 +242,6 @@ int gfx_to_msx(const char *s, uint8_t *out, int max)
 
 void gfx_to_rgb(uint32_t *out)
 {
-    for (int y = 0; y < GFX_H; y++)
-        for (int x = 0; x < GFX_W; x++) *out++ = gfx_pal[gfx_fb[y][x]];
+    for (int y = 0; y < gfx_h; y++)
+        for (int x = 0; x < gfx_w; x++) *out++ = gfx_pal[gfx_fb[y][x]];
 }

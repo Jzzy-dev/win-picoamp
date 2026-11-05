@@ -21,6 +21,7 @@
 #include "config.h"
 #include "sys.h"
 #include "util.h"
+#include "pages.h"
 
 #define LIST_ROW 19
 #define LIST_N   4
@@ -69,11 +70,17 @@ static ticker tk_title, tk_artist, tk_list;
 static ticker *const tickers[3] = { &tk_title, &tk_artist, &tk_list };
 static ticker *tk_turn;
 
-static audio_status st;
-static viz_data     viz;
+audio_status ui_st;
+viz_data     ui_viz;
+#define st  ui_st
+#define viz ui_viz
 static lib_list     list;
 static int          sel, top;
 static bool         help_on;
+static int          page = PG_PLAYER;
+static bool         eq_open;               // G: the equalizer in the picture
+static int          eq_sel;                // 0-4 a band, 5 the balance
+static int          eq_drag = -1;
 static bool         quit_req;
 static int          eq_preset;            // EQ_PRESETS: own
 static char         msg[256];
@@ -186,10 +193,13 @@ static void go_parent(void)
     open_place(up, from);
 }
 
+static void go_parent(void);
+
 static void activate(void)
 {
     if (!list.count) return;
     lib_entry *e = &list.e[sel];
+    if (e->type == E_PARENT) { go_parent(); return; }
     if (e->type == E_FOLDER) { open_place(e->target, NULL); return; }
     if (e->type == E_STATION) { audio_play_url(e->target, e->name); return; }
     // a file: the folder's music files are the play list
@@ -393,11 +403,127 @@ static void freq_label(int bar)
     gfx_str(16, bar + 1, b, 3, COL(CYAN, NAVY));
 }
 
+// ---------------- the equalizer (G) ----------------
+static const int8_t band_cell[24] = { -1,-1,-1,-1,0,0,0,-1,1,1,1,-1,2,2,2,-1,3,3,3,-1,4,4,4,-1 };
+static const uint8_t knob_v[7] = { 0x3C,0x7E,0xFF,0xFF,0xFF,0x7E,0x3C };
+static const uint8_t knob_h[8] = { 0x3C,0x7E,0xFF,0xFF,0xFF,0xFF,0x7E,0x3C };
+static const char *const eq_lab[5] = { " 60", "250", " 1K", " 4K", "12K" };
+static const char *const eq_hz[5] = { "60 HZ", "250 HZ", "1 KHZ", "4 KHZ", "12 KHZ" };
+
+// the colour of a cell of the picture, in one of its three parts (y 0, 58, 66)
+static uint8_t eq_colour(int c, int part_y)
+{
+    if (part_y >= 66) return c < 3 ? CYAN : eq_sel == 5 ? YELLOW : WHITE;
+    if (c < 3) return CYAN;
+    int b = band_cell[c];
+    if (b < 0) return GREY;
+    if (b == eq_sel) return YELLOW;
+    if (part_y >= 58) return CYAN;
+    return c == 5 + 4 * b ? WHITE : GREY;
+}
+
+static void draw_eq(void)
+{
+    static uint8_t px[80][192];
+    memset(px, 0, sizeof px);
+    #define VB_TEXT(cell, y, txt) do { uint8_t m_[8]; int n_ = gfx_to_msx(txt, m_, sizeof m_); \
+        for (int i_ = 0; i_ < n_; i_++) { const uint8_t *g_ = gfx_glyph(m_[i_]); \
+            for (int r_ = 0; r_ < 8; r_++) for (int b_ = 0; b_ < 8; b_++) \
+                if (g_[r_] & (0x80 >> b_) && (y) + r_ < 80 && ((cell) + i_) * 8 + b_ < 192) px[(y) + r_][((cell) + i_) * 8 + b_] = 1; } } while (0)
+    VB_TEXT(0, 3, "+12");
+    VB_TEXT(1, 27, "0");
+    VB_TEXT(0, 51, "-12");
+    for (int x = 24; x < 184; x++) if ((x & 3) == 0) px[30][x] = 1;          // 0 dB: 0x88 a cell
+    VB_TEXT(0, 70, "BAL");
+    for (int x = 24; x < 184; x++) px[73][x] = px[74][x] = 1;
+    for (int b = 0; b < EQ_BANDS; b++)
+    {
+        int cc = 5 + 4 * b;
+        for (int y = 2; y < 59; y++) px[y][cc * 8 + 3] = px[y][cc * 8 + 4] = 1;
+        int top = 27 - 2 * cfg.eq[b];
+        for (int r = 0; r < 7; r++)
+            for (int k = 0; k < 8; k++)
+                if (knob_v[r] & (0x80 >> k)) px[top + r][cc * 8 + k] = 1;
+        VB_TEXT(cc - 1, 60, eq_lab[b]);
+    }
+    int bx = 28 + cfg.balance * 148 / 100;
+    for (int r = 0; r < 8; r++)
+        for (int k = 0; k < 8; k++)
+            if (knob_h[r] & (0x80 >> k) && bx + k < 192) px[70 + r][bx + k] = 1;
+    #undef VB_TEXT
+    for (int y = 0; y < 80; y++)
+    {
+        int part = y < 58 ? 0 : y < 66 ? 58 : 66;
+        for (int x = 0; x < 192; x++)
+            gfx_fb[48 + y][8 + x] = px[y][x] ? eq_colour(x / 8, part) : NAVY;
+    }
+    // row 16: the chosen band and its gain, or the balance
+    char line[40];
+    if (eq_sel == 5)
+    {
+        if (cfg.balance == 50) snprintf(line, sizeof line, "BALANCE CENTRE");
+        else snprintf(line, sizeof line, "BALANCE %d", cfg.balance);
+    }
+    else snprintf(line, sizeof line, "%s %s%d DB", eq_hz[eq_sel], cfg.eq[eq_sel] > 0 ? "+" : "", cfg.eq[eq_sel]);
+    gfx_str(16, 1, line, 16, COL(WHITE, NAVY));
+    gfx_str(16, 17, "G:CLOSE", 8, COL(GREY, NAVY));
+}
+
+static void eq_apply(void)
+{
+    audio_set_eq(cfg.eq);
+    eq_preset = eq_find_preset(cfg.eq);
+}
+
+static void eq_step(int d)
+{
+    if (eq_sel == 5)
+    {
+        int b = cfg.balance + 5 * d;
+        cfg.balance = b < 0 ? 0 : b > 100 ? 100 : b;
+        audio_set_balance(cfg.balance);
+        return;
+    }
+    int g = cfg.eq[eq_sel] + d;
+    if (g > EQ_MAX_DB || g < -EQ_MAX_DB) return;
+    cfg.eq[eq_sel] = (int8_t)g;
+    eq_apply();
+}
+
+// a click or a drag in the picture: x, y in the picture (0..191, 0..79)
+static void eq_point(int ax, int ay, bool press)
+{
+    if (press)
+    {
+        eq_drag = -1;
+        if (ay >= 66 && ax >= 16) eq_drag = 5;
+        else if (ay < 58 && ax >= 0 && ax < 192 && band_cell[ax / 8] >= 0) eq_drag = band_cell[ax / 8];
+        if (eq_drag < 0) return;
+        eq_sel = eq_drag;
+    }
+    if (eq_drag == 5)
+    {
+        int b = (ax - 32) * 100 / 148;
+        cfg.balance = b < 0 ? 0 : b > 100 ? 100 : b;
+        if (cfg.balance > 46 && cfg.balance < 54) cfg.balance = 50;
+        audio_set_balance(cfg.balance);
+    }
+    else if (eq_drag >= 0)
+    {
+        int g = (30 - ay) / 2;
+        if (g > EQ_MAX_DB) g = EQ_MAX_DB;
+        if (g < -EQ_MAX_DB) g = -EQ_MAX_DB;
+        cfg.eq[eq_drag] = (int8_t)g;
+        eq_apply();
+    }
+}
+
 static void draw_view(void)
 {
-    gfx_str(5, 1, cfg.view ? "SCOPE" : "SPECTRUM", 9, COL(MAGENTA, NAVY));
-    gfx_str(5, 11, eq_names[eq_preset], 9, COL(GREY, NAVY));
-    if (cfg.view) draw_scope();
+    gfx_str(5, 1, eq_open ? "EQUALIZER" : cfg.view ? "SCOPE" : "SPECTRUM", 9, COL(MAGENTA, NAVY));
+    gfx_str(5, 11, eq_names[eq_preset], 9, eq_open ? COL(YELLOW, NAVY) : COL(GREY, NAVY));
+    if (eq_open) draw_eq();
+    else if (cfg.view) draw_scope();
     else
     {
         for (int b = 0; b < VIZ_BANDS; b++) draw_bar(1 + b, viz.level[b], viz.peak[b]);
@@ -437,7 +563,7 @@ static void draw_list(void)
         if (i >= list.count) { gfx_fill(row, 1, 30, A_NORM); continue; }
         lib_entry *e = &list.e[i];
         char t[300];
-        if (e->type == E_FOLDER) snprintf(t, sizeof t, "[%s]", e->name);
+        if (e->type == E_FOLDER || e->type == E_PARENT) snprintf(t, sizeof t, "[%s]", e->name);
         else u_copy(t, sizeof t, e->name);
         int w = e->type == E_STATION ? 25 : 30;
         uint8_t c = i == sel ? A_SEL : A_NORM;
@@ -490,16 +616,54 @@ static void draw_help(void)
         gfx_str(22, words[i].col, words[i].w, (int)strlen(words[i].w), beat[(i + (unsigned)bass / 3) % 7]);
 }
 
+// ---------------- pages ----------------
+static const page_t *const pages[PG_COUNT] = { NULL, &page_full, &page_clock, &page_wx, &page_news };
+
+int ui_page_now(void) { return page; }
+
+void ui_page(int pg)
+{
+    if (pg == page) return;
+    if (page != PG_PLAYER && pages[page]->close) pages[page]->close();
+    page = pg;
+    gfx_set_size(GFX_W, GFX_H);
+    tk_title.text[0] = tk_artist.text[0] = tk_list.text[0] = 0;
+    tk_turn = NULL;
+    if (page != PG_PLAYER && pages[page]->open) pages[page]->open();
+}
+
+const char *ui_now_playing(void)
+{
+    static char t[800];
+    snprintf(t, sizeof t, "%s%s%s%s%s", st.title[0] ? st.title : "NO TRACK", st.artist[0] ? " - " : "", st.artist,
+             st.stream && st.album[0] ? "  . " : "", st.stream ? st.album : "");
+    return t;
+}
+
+void ui_row0(int row, int col, int width, uint8_t colour)
+{
+    tk_title.shown = false;
+    ticker_set(&tk_title, ui_now_playing(), row, col, width, colour);
+    if (!tk_turn || !tk_turn->act) tk_turn = &tk_title;
+    ticker_draw(&tk_title);
+}
+
+void ui_note(const char *text, bool error) { ui_message(text, error); }
+const char *ui_note_text(void) { return (msg[0] && sys_millis() < msg_until) ? msg : ""; }
+bool ui_note_error(void) { return msg_col == COL(RED, NAVY); }
+
 void ui_frame(void)
 {
     audio_status_get(&st);
     viz_poll(st.state == ST_PLAYING && !st.buffering, &viz);
+    clock_service_tick();
     if (st.err_gen != err_seen)
     {
         err_seen = st.err_gen;
         if (st.error[0]) ui_message(st.error, true);
     }
-    if (help_on) { draw_help(); return; }
+    if (help_on) { gfx_set_size(GFX_W, GFX_H); draw_help(); return; }
+    if (page != PG_PLAYER) { pages[page]->frame(); return; }
     for (int i = 0; i < 3; i++) tickers[i]->shown = false;
     draw_static();
     draw_info();
@@ -520,72 +684,116 @@ static void set_eq_preset(int p)
     audio_set_eq(cfg.eq);
 }
 
+void ui_eq_next(void) { set_eq_preset(eq_preset >= EQ_PRESETS ? 0 : eq_preset + 1); }
+
 static void set_mode(int m)
 {
     cfg.mode = m;
     audio_set_mode(m);
 }
 
-void ui_key(int k)
+// the keys that work on every page
+bool ui_playback_key(int k)
 {
-    if (help_on) { help_on = false; return; }
     if (k >= 'a' && k <= 'z') k -= 32;
     switch (k)
     {
-    case K_UP:    move(-1); break;
-    case K_DOWN:  move(1); break;
-    case K_LEFT: case K_PGUP:  move(-LIST_N); break;
-    case K_RIGHT: case K_PGDN: move(LIST_N); break;
-    case K_HOME:  move(-list.count); break;
-    case K_END:   move(list.count); break;
-    case K_ENTER: activate(); break;
-    case K_BS:    go_parent(); break;
-    case ' ': case K_MEDIA_PLAY: audio_toggle_pause(); break;
-    case 'S': case K_MEDIA_STOP: audio_stop(); break;
-    case 'N': case K_MEDIA_NEXT: audio_next(); break;
-    case 'P': case K_MEDIA_PREV: audio_prev(); break;
+    case ' ': case K_MEDIA_PLAY: audio_toggle_pause(); return true;
+    case 'S': case K_MEDIA_STOP: audio_stop(); return true;
+    case 'N': case K_MEDIA_NEXT: audio_next(); return true;
+    case 'P': case K_MEDIA_PREV: audio_prev(); return true;
     case '+': case '=': case K_VOL_UP:
         cfg.volume = cfg.volume + 5 > 100 ? 100 : cfg.volume + 5;
         audio_set_volume(cfg.volume);
-        break;
+        return true;
     case '-': case K_VOL_DOWN:
         cfg.volume = cfg.volume < 5 ? 0 : cfg.volume - 5;
         audio_set_volume(cfg.volume);
-        break;
+        return true;
     case 'M': case K_VOL_MUTE:
         cfg.muted = !cfg.muted;
         audio_set_mute(cfg.muted);
-        break;
-    case ',': case '<': audio_seek_rel(-10); break;
-    case '.': case '>': audio_seek_rel(10); break;
-    case 'H': set_mode(cfg.mode ^ MODE_SHUFFLE); break;
-    case 'R': set_mode(cfg.mode ^ MODE_REPEAT); break;
-    case 'V': cfg.view ^= 1; break;
-    case 'E': set_eq_preset(eq_preset >= EQ_PRESETS ? 0 : eq_preset + 1); break;
-    case 'F': fav_add(); break;
-    case 'D': case K_DEL: fav_del(); break;
-    case 'O': plat_open_folder(config_radio_dir()); break;
-    case '?': help_on = true; break;
-    case 'Q': quit_req = true; plat_quit(); break;
+        return true;
+    case ',': case '<': audio_seek_rel(-10); return true;
+    case '.': case '>': audio_seek_rel(10); return true;
+    case 'H': set_mode(cfg.mode ^ MODE_SHUFFLE); return true;
+    case 'R': set_mode(cfg.mode ^ MODE_REPEAT); return true;
+    case 'E': ui_eq_next(); return true;
+    case 'Q': quit_req = true; plat_quit(); return true;
     }
+    return false;
+}
+
+void ui_key(int k)
+{
+    if (help_on) { help_on = false; return; }
+    if (page != PG_PLAYER) { pages[page]->key(k); return; }
+    if (k >= 'a' && k <= 'z') k -= 32;
+    if (eq_open)
+    {
+        // the equalizer takes the arrows and 0
+        switch (k)
+        {
+        case K_LEFT:  eq_sel = eq_sel ? eq_sel - 1 : 5; return;
+        case K_RIGHT: eq_sel = eq_sel < 5 ? eq_sel + 1 : 0; return;
+        case K_UP:    eq_step(1); return;
+        case K_DOWN:  eq_step(-1); return;
+        case '0':
+            if (eq_sel == 5) { cfg.balance = 50; audio_set_balance(50); }
+            else { cfg.eq[eq_sel] = 0; eq_apply(); }
+            return;
+        case 'G': case K_ESC: eq_open = false; return;
+        }
+    }
+    switch (k)
+    {
+    case K_UP:    move(-1); return;
+    case K_DOWN:  move(1); return;
+    case K_LEFT: case K_PGUP:  move(-LIST_N); return;
+    case K_RIGHT: case K_PGDN: move(LIST_N); return;
+    case K_HOME:  move(-list.count); return;
+    case K_END:   move(list.count); return;
+    case K_ENTER: activate(); return;
+    case K_BS:    go_parent(); return;
+    case 'V': eq_open = false; cfg.view ^= 1; return;
+    case 'G': eq_open = !eq_open; eq_drag = -1; return;
+    case 'Z': ui_page(PG_FULL); return;
+    case 'C': ui_page(PG_CLOCK); return;
+    case 'W': ui_page(PG_WX); return;
+    case 'T': ui_page(PG_NEWS); return;
+    case 'F': fav_add(); return;
+    case 'D': case K_DEL: fav_del(); return;
+    case 'O': plat_open_folder(config_radio_dir()); return;
+    case '?': help_on = true; return;
+    }
+    ui_playback_key(k);
 }
 
 void ui_mouse(int x, int y, int button)
 {
     if (help_on) { if (button == MOUSE_LEFT || button == MOUSE_RIGHT) help_on = false; return; }
+    if (page != PG_PLAYER) { if (pages[page]->mouse) pages[page]->mouse(x, y, button); return; }
+    if (button == MOUSE_UP) { eq_drag = -1; return; }
+    if (button == MOUSE_DRAG)
+    {
+        if (eq_open && eq_drag >= 0) eq_point(x - 8, y - 48, false);
+        return;
+    }
     if (button == MOUSE_WHEEL_UP) { move(-1); return; }
     if (button == MOUSE_WHEEL_DOWN) { move(1); return; }
-    if (button == MOUSE_RIGHT) { go_parent(); return; }
+    if (button == MOUSE_RIGHT) { if (eq_open) eq_open = false; else go_parent(); return; }
     if (button != MOUSE_LEFT || x < 0 || y < 0 || x >= GFX_W || y >= GFX_H) return;
     int row = y / 8, col = x / 8;
     if (row == 0 && col == 31) { quit_req = true; plat_quit(); return; }
+    if (eq_open && row >= 6 && row <= 15 && col >= 1 && col <= 24) { eq_point(x - 8, y - 48, true); return; }
+    if (eq_open && row == 16 && col >= 17 && col <= 24) { eq_open = false; return; }
     if (row == 4 && col >= 1 && col <= 30)
     {
         if (st.total && st.seekable) audio_seek_to((x - 8) * st.total / 240);
         return;
     }
-    if (row == 5 && col >= 1 && col <= 9) { cfg.view ^= 1; return; }
-    if (row == 5 && col >= 11 && col <= 19) { ui_key('E'); return; }
+    if (row == 5 && col >= 1 && col <= 9) { if (eq_open) eq_open = false; else cfg.view ^= 1; return; }
+    if (row == 5 && col >= 11 && col <= 19) { ui_eq_next(); return; }
     if (row >= LIST_ROW && row < LIST_ROW + LIST_N)
     {
         if (col == 31) { move(row == LIST_ROW ? -LIST_N : row == LIST_ROW + LIST_N - 1 ? LIST_N : 0); return; }
@@ -609,10 +817,10 @@ void ui_mouse(int x, int y, int button)
         case 5: audio_stop(); return;
         case 6: audio_seek_rel(10); return;
         case 7: audio_next(); return;
-        case 9: case 10: case 11: ui_key('H'); return;
-        case 13: case 14: case 15: ui_key('R'); return;
-        case 17: case 18: ui_key('E'); return;
-        case 20: case 21: case 22: ui_key('M'); return;
+        case 9: case 10: case 11: set_mode(cfg.mode ^ MODE_SHUFFLE); return;
+        case 13: case 14: case 15: set_mode(cfg.mode ^ MODE_REPEAT); return;
+        case 17: case 18: eq_open = !eq_open; return;
+        case 20: case 21: case 22: ui_playback_key('M'); return;
         default:
             if (col >= 24)
             {
@@ -660,6 +868,7 @@ void ui_init(void)
     audio_set_mute(cfg.muted);
     audio_set_mode(cfg.mode);
     audio_set_eq(cfg.eq);
+    audio_set_balance(cfg.balance);
     open_place(cfg.start_path, NULL);
     if (!list.ok) open_place("", NULL);
     (void)playing_place;

@@ -13,6 +13,7 @@ typedef struct
     bool   muted;            // (not kept: PicoAmp starts with the sound on)
     int    mode;             // MODE_REPEAT | MODE_SHUFFLE
     int8_t eq[EQ_BANDS];
+    int    balance;          // 0 left .. 50 centre .. 100 right
     int    view;             // 0 spectrum, 1 scope
     char   music_dir[1024];  // the [Music] entry of the list
     char   start_path[2048]; // the list's folder when it was closed

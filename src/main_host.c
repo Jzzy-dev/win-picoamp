@@ -69,9 +69,12 @@ int main(int argc, char **argv)
             char *s2 = strchr(a, ' ');
             if (s2) { *s2 = 0; scale = atoi(s2 + 1); }
             ui_frame();
-            static uint32_t rgb[GFX_W * GFX_H];
+            static uint32_t rgb[GFX_MAXW * GFX_MAXH];
             gfx_to_rgb(rgb);
-            printf("shot %s: %s\n", a, png_write(a, rgb, GFX_W, GFX_H, scale) ? "ok" : "FAILED");
+            // shown 4:3 as on the screen: 512 x 212 with half the scale across and 2.26 times down
+            int sx = scale, sy = scale;
+            if (gfx_w == 512) { sx = scale > 1 ? scale / 2 : 1; sy = (scale * 192 * 2 + 211) / 212 / 2; if (sy < 1) sy = 1; }
+            printf("shot %s: %s\n", a, png_write(a, rgb, gfx_w, gfx_h, sx, sy) ? "ok" : "FAILED");
         }
         else if (!strcmp(cmd, "status"))
         {

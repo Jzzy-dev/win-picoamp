@@ -38,9 +38,9 @@
 static HWND      hwnd;
 static bool      running = true;
 static RECT      dest;                  // where the picture is in the client area
-static uint32_t  rgb[GFX_W * GFX_H];
-static uint32_t *big;                   // the picture blown up by a whole number
-static int       big_k;
+static uint32_t  rgb[GFX_MAXW * GFX_MAXH];
+static uint32_t *big;                   // the picture blown up by whole numbers
+static int       big_kx, big_ky, big_w, big_h;
 static bool      big_scan;
 static BITMAPINFO big_bmi;
 static bool      smooth_ok = true;      // HALFTONE fast enough here
@@ -98,34 +98,38 @@ static void compute_dest(int cw, int ch)
     dest.bottom = dest.top + dh;
 }
 
-static void blow_up(int k, bool scan)
+static void blow_up(int kx, int ky, bool scan)
 {
-    if (k != big_k || !big)
+    int gw = gfx_w, gh = gfx_h;
+    if (kx != big_kx || ky != big_ky || gw != big_w || gh != big_h || !big)
     {
         free(big);
-        big = malloc(sizeof(uint32_t) * (size_t)(GFX_W * k) * (size_t)(GFX_H * k));
-        big_k = k;
+        big = malloc(sizeof(uint32_t) * (size_t)(gw * kx) * (size_t)(gh * ky));
+        big_kx = kx;
+        big_ky = ky;
+        big_w = gw;
+        big_h = gh;
         memset(&big_bmi, 0, sizeof big_bmi);
         big_bmi.bmiHeader.biSize = sizeof big_bmi.bmiHeader;
-        big_bmi.bmiHeader.biWidth = GFX_W * k;
-        big_bmi.bmiHeader.biHeight = -(GFX_H * k);      // top-down
+        big_bmi.bmiHeader.biWidth = gw * kx;
+        big_bmi.bmiHeader.biHeight = -(gh * ky);       // top-down
         big_bmi.bmiHeader.biPlanes = 1;
         big_bmi.bmiHeader.biBitCount = 32;
         big_bmi.bmiHeader.biCompression = BI_RGB;
     }
     big_scan = scan;
-    int W = GFX_W * k;
-    for (int y = 0; y < GFX_H; y++)
+    int W = gw * kx;
+    for (int y = 0; y < gh; y++)
     {
-        const uint32_t *src = rgb + y * GFX_W;
-        uint32_t *row0 = big + (size_t)(y * k) * (size_t)W;
-        for (int x = 0; x < GFX_W; x++)
-            for (int i = 0; i < k; i++) row0[x * k + i] = src[x];
-        for (int r = 1; r < k; r++)
+        const uint32_t *src = rgb + y * gw;
+        uint32_t *row0 = big + (size_t)(y * ky) * (size_t)W;
+        for (int x = 0; x < gw; x++)
+            for (int i = 0; i < kx; i++) row0[x * kx + i] = src[x];
+        for (int r = 1; r < ky; r++)
         {
             uint32_t *row = row0 + (size_t)r * (size_t)W;
             // scan lines: the last third of every MSX line darker
-            if (scan && r >= k - (k + 2) / 3)
+            if (scan && r >= ky - (ky + 2) / 3)
                 for (int x = 0; x < W; x++) row[x] = (row0[x] >> 1 & 0x7F7F7F) + (row0[x] >> 2 & 0x3F3F3F);
             else memcpy(row, row0, sizeof(uint32_t) * (size_t)W);
         }
@@ -140,13 +144,15 @@ static void present(HDC dc)
     compute_dest(cr.right, cr.bottom);
     gfx_to_rgb(rgb);
     int dw = dest.right - dest.left, dh = dest.bottom - dest.top;
-    // whole multiple below the size (at least 1; with scan lines at least 3)
-    int k = dw / GFX_W < dh / GFX_H ? dw / GFX_W : dh / GFX_H;
-    if (k < 1) k = 1;
-    if (k > 12) k = 12;
-    bool exact = dw == GFX_W * k && dh == GFX_H * k;
-    bool scan = cfg.scanlines && k >= 2;
-    blow_up(k, scan);
+    // whole multiples below the size (each way: the text mode's pixels are not square)
+    int kx = dw / gfx_w, ky = dh / gfx_h;
+    if (kx < 1) kx = 1;
+    if (ky < 1) ky = 1;
+    if (kx > 12) kx = 12;
+    if (ky > 12) ky = 12;
+    bool exact = dw == gfx_w * kx && dh == gfx_h * ky;
+    bool scan = cfg.scanlines && ky >= 2;
+    blow_up(kx, ky, scan);
     // the borders in the backdrop colour
     HBRUSH b = CreateSolidBrush(RGB(gfx_pal[NAVY] >> 16 & 255, gfx_pal[NAVY] >> 8 & 255, gfx_pal[NAVY] & 255));
     RECT r;
@@ -161,7 +167,7 @@ static void present(HDC dc)
     bool smooth = !exact && smooth_ok;
     SetStretchBltMode(dc, smooth ? HALFTONE : COLORONCOLOR);
     if (smooth) SetBrushOrgEx(dc, 0, 0, NULL);
-    StretchDIBits(dc, dest.left, dest.top, dw, dh, 0, 0, GFX_W * k, GFX_H * k, big, &big_bmi, DIB_RGB_COLORS, SRCCOPY);
+    StretchDIBits(dc, dest.left, dest.top, dw, dh, 0, 0, gfx_w * kx, gfx_h * ky, big, &big_bmi, DIB_RGB_COLORS, SRCCOPY);
     QueryPerformanceCounter(&t1);
     // smoothing too slow on this machine (or remote desktop): plain copies
     if (smooth && (t1.QuadPart - t0.QuadPart) * 1000 / f.QuadPart > 14)
@@ -242,7 +248,7 @@ static void mouse(LPARAM lp, int button)
     int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
     int dw = dest.right - dest.left, dh = dest.bottom - dest.top;
     if (dw <= 0 || dh <= 0) return;
-    int fx = (x - dest.left) * GFX_W / dw, fy = (y - dest.top) * GFX_H / dh;
+    int fx = (x - dest.left) * gfx_w / dw, fy = (y - dest.top) * gfx_h / dh;
     if (x < dest.left) fx = -1;
     if (y < dest.top) fy = -1;
     ui_mouse(fx, fy, button);
@@ -358,7 +364,15 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         break;
     case WM_LBUTTONDOWN:
         SetFocus(h);
+        SetCapture(h);
         mouse(lp, MOUSE_LEFT);
+        return 0;
+    case WM_LBUTTONUP:
+        ReleaseCapture();
+        mouse(lp, MOUSE_UP);
+        return 0;
+    case WM_MOUSEMOVE:
+        if (wp & MK_LBUTTON) mouse(lp, MOUSE_DRAG);
         return 0;
     case WM_LBUTTONDBLCLK:
         mouse(lp, MOUSE_LEFT);
@@ -438,7 +452,7 @@ static bool grab(const char *path)
     uint32_t *px = malloc(sizeof(uint32_t) * (size_t)w * (size_t)h);
     memcpy(px, bits, sizeof(uint32_t) * (size_t)w * (size_t)h);
     for (int i = 0; i < w * h; i++) px[i] &= 0xFFFFFF;
-    bool ok = png_write(path, px, w, h, 1);
+    bool ok = png_write(path, px, w, h, 1, 1);
     free(px);
     DeleteObject(bm);
     DeleteDC(mdc);

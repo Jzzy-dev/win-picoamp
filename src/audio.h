@@ -45,6 +45,7 @@ void audio_seek_rel(int seconds);
 void audio_seek_to(int seconds);
 void audio_set_volume(int v);
 void audio_set_mute(bool m);
+void audio_set_balance(int b);       // 0 left .. 50 centre .. 100 right
 void audio_set_mode(int mode);
 void audio_set_eq(const int8_t gains[EQ_BANDS]);
 

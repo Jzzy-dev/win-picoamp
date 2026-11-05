@@ -36,10 +36,11 @@ static void chunk(FILE *f, const char *type, const uint8_t *data, size_t n)
     fwrite(h, 1, 4, f);
 }
 
-bool png_write(const char *path, const uint32_t *rgb, int w, int h, int scale)
+bool png_write(const char *path, const uint32_t *rgb, int w, int h, int sx, int sy)
 {
-    if (scale < 1) scale = 1;
-    int W = w * scale, H = h * scale;
+    if (sx < 1) sx = 1;
+    if (sy < 1) sy = 1;
+    int W = w * sx, H = h * sy;
     size_t row = (size_t)W * 3 + 1, raw_n = row * (size_t)H;
     uint8_t *raw = malloc(raw_n);
     for (int y = 0; y < H; y++)
@@ -48,7 +49,7 @@ bool png_write(const char *path, const uint32_t *rgb, int w, int h, int scale)
         *r++ = 0;
         for (int x = 0; x < W; x++)
         {
-            uint32_t p = rgb[(y / scale) * w + x / scale];
+            uint32_t p = rgb[(y / sy) * w + x / sx];
             *r++ = (uint8_t)(p >> 16); *r++ = (uint8_t)(p >> 8); *r++ = (uint8_t)p;
         }
     }

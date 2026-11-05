@@ -73,6 +73,7 @@ static void add(lib_list *l, int type, const char *name, const char *target)
 static int cmp_entry(const void *a, const void *b)
 {
     const lib_entry *x = a, *y = b;
+    if ((x->type == E_PARENT) != (y->type == E_PARENT)) return x->type == E_PARENT ? -1 : 1;
     if ((x->type == E_FOLDER) != (y->type == E_FOLDER)) return x->type == E_FOLDER ? -1 : 1;
     return u_stricmp(x->name, y->name);
 }
@@ -134,6 +135,7 @@ bool lib_open(lib_list *l, const char *place)
     lib_free(l);
     u_copy(l->place, sizeof l->place, place);
     l->ok = true;
+    if (place[0]) add(l, E_PARENT, "..", "");          // as on the MSX: [..] first
     if (!place[0])
     {
         u_copy(l->title, sizeof l->title, "/");
