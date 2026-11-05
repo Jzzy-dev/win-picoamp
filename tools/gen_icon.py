@@ -53,3 +53,23 @@ imgs = [render(s) for s in sizes]
 imgs[-1].save(out, format='ICO', sizes=[(s, s) for s in sizes], append_images=imgs[:-1])
 render(256).save(os.path.join(here, '..', 'res', 'picoamp_icon.png'))
 print('wrote', out)
+
+# the MSIX package's pictures (msix/Assets): the icon at whole multiples of its
+# 16 x 16 grid, in the middle of each size (transparent around it)
+assets = os.path.join(here, '..', 'msix', 'Assets')
+os.makedirs(assets, exist_ok=True)
+
+def placed(w, h, fill=CLEAR):
+    k = max(1, min(w, h) // 16)
+    pic = render(16 * k)
+    img = Image.new('RGBA', (w, h), fill)
+    img.paste(pic, ((w - 16 * k) // 2, (h - 16 * k) // 2), pic)
+    return img
+
+for name, w, h in [('Square44x44Logo', 44, 44), ('Square150x150Logo', 150, 150), ('Wide310x150Logo', 310, 150),
+                   ('SmallTile', 71, 71), ('LargeTile', 310, 310), ('StoreLogo', 50, 50), ('SplashScreen', 620, 300)]:
+    placed(w, h).save(os.path.join(assets, name + '.png'))
+for t in (16, 24, 32, 48, 256):
+    placed(t, t).save(os.path.join(assets, 'Square44x44Logo.targetsize-%d.png' % t))
+    placed(t, t).save(os.path.join(assets, 'Square44x44Logo.targetsize-%d_altform-unplated.png' % t))
+print('wrote', assets)

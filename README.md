@@ -93,6 +93,14 @@ The playback keys work on every page.
 * The control row, SHF/REP/EQ, the volume cells, the seek bar and the SPECTRUM label can be clicked.
 * The equalizer's knobs can be dragged.
 
+## The Microsoft Store
+
+A download of `PicoAmp.exe` is not signed, so Windows SmartScreen warns about an unknown publisher (and
+some company PCs block it). An app from the Microsoft Store is signed by Microsoft. Every build makes an
+MSIX package for the Store; [docs/STORE.md](docs/STORE.md) has the steps for whoever publishes it (free for
+individual developers), and the text for the listing. Installed from the Store, PicoAmp keeps its settings
+in the package's own folder (`%LOCALAPPDATA%\Packages\<package>\LocalState\PicoAmp`; O opens it).
+
 ## Files
 
 Everything is in `%APPDATA%\PicoAmp` and is plain text, so you can edit it while PicoAmp is closed.

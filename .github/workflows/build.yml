@@ -74,6 +74,39 @@ jobs:
           Copy-Item third_party\cbios\LICENSE PicoAmp\LICENSE-C-BIOS-font.txt
           Copy-Item third_party\miniaudio\LICENSE PicoAmp\LICENSE-miniaudio.txt
           Compress-Archive -Path PicoAmp\* -DestinationPath PicoAmp-windows-x64.zip
+      - name: "MSIX package (for the Microsoft Store)"
+        shell: pwsh
+        env:
+          # the publisher's Partner Center identity, as repository variables
+          # (Settings > Secrets and variables > Actions > Variables); else test values
+          MSIX_NAME: ${{ vars.MSIX_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_NAME: ${{ vars.MSIX_PUBLISHER_NAME }}
+        run: |
+          $v = "0.2.$env:GITHUB_RUN_NUMBER.0"
+          if ($env:GITHUB_REF -match '^refs/tags/v(\d+)\.(\d+)\.(\d+)$') { $v = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0" }
+          $a = @{ Version = $v; Out = "PicoAmp-$v.msix" }
+          if ($env:MSIX_NAME) { $a.Name = $env:MSIX_NAME }
+          if ($env:MSIX_PUBLISHER) { $a.Publisher = $env:MSIX_PUBLISHER }
+          if ($env:MSIX_PUBLISHER_NAME) { $a.PublisherName = $env:MSIX_PUBLISHER_NAME }
+          ./tools/make_msix.ps1 @a
+          "MSIX_FILE=PicoAmp-$v.msix" | Out-File -Append $env:GITHUB_ENV
+      - name: "Check: the package installed and run as a Store app would be"
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          ./tools/make_msix.ps1 -Version "0.0.1.0" -Out build\test.msix -TestSign
+          $alias = "$env:LOCALAPPDATA\Microsoft\WindowsApps\picoamp.exe"
+          $log = "$PWD\msix-run.txt"
+          $p = Start-Process -FilePath $alias -ArgumentList '--script','"wait 1500; where; page; quit"','--log',"`"$log`"" -Wait -PassThru
+          Get-Content $log
+          $pkg = Get-AppxPackage -Name "Jzzy.PicoAmp.Test"
+          $ini = "$env:LOCALAPPDATA\Packages\$($pkg.PackageFamilyName)\LocalState\PicoAmp\Radio\Stations.m3u"
+          if (Test-Path $ini) { "settings folder: ok ($ini)" } else { throw "no settings in LocalState" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PicoAmp-msix
+          path: ${{ env.MSIX_FILE }}
       - uses: actions/upload-artifact@v4
         with:
           name: PicoAmp-windows-x64
@@ -95,7 +128,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: PicoAmp-windows-x64.zip
+          files: |
+            PicoAmp-windows-x64.zip
+            ${{ env.MSIX_FILE }}
 
   linux-tests:
     runs-on: ubuntu-latest

@@ -137,9 +137,33 @@ void *sys_fopen(const char *path, const char *mode)
     return f;
 }
 
+// installed from the Store (an MSIX package): its family name, else false
+static bool package_family(wchar_t *out, UINT32 n)
+{
+    typedef LONG (WINAPI *fn_t)(UINT32 *, PWSTR);
+    HMODULE k = GetModuleHandleW(L"kernel32.dll");
+    fn_t f = k ? (fn_t)(void *)GetProcAddress(k, "GetCurrentPackageFamilyName") : NULL;
+    return f && f(&n, out) == ERROR_SUCCESS && out[0];
+}
+
 const char *sys_config_dir(void)
 {
     static char dir[1024];
+    wchar_t fam[256];
+    if (!dir[0] && package_family(fam, 256))
+    {
+        // a packaged app's %APPDATA% is redirected to a place of its own: the
+        // package's LocalState instead, a real folder that Explorer opens (O)
+        wchar_t *p = NULL;
+        if (SHGetKnownFolderPath(&FOLDERID_LocalAppData, 0, NULL, &p) == S_OK)
+        {
+            char *s = narrow(p), *f = narrow(fam);
+            snprintf(dir, sizeof dir, "%s\\Packages\\%s\\LocalState\\PicoAmp", s, f);
+            free(s);
+            free(f);
+        }
+        if (p) CoTaskMemFree(p);
+    }
     if (!dir[0])
     {
         wchar_t *p = NULL;
