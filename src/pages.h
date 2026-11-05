@@ -3,6 +3,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "audio.h"
 #include "viz.h"
 
@@ -15,6 +16,7 @@ typedef struct
     void (*key)(int k);
     void (*mouse)(int x, int y, int button);
     void (*close)(void);
+    void (*describe)(char *out, size_t n);   // for the scripts: what the page shows
 } page_t;
 
 extern const page_t page_full, page_clock, page_wx, page_news;

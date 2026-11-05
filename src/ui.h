@@ -19,7 +19,10 @@ void ui_drop(const char *const *paths, int n);   // files dropped on the window
 void ui_message(const char *text, bool error);
 bool ui_quit_requested(void);
 void ui_save_state(void);                 // into cfg before it is saved
+// for the scripts: the list (path, entries) or what the page shows, as text (malloc'd)
+char *ui_describe(bool the_list);
 
 // from the platform
 void plat_open_folder(const char *path);
 void plat_quit(void);
+void plat_minimize(void);                 // ESC with nothing to close: the music plays on

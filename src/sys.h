@@ -10,6 +10,7 @@ typedef struct sys_mutex  sys_mutex;
 
 sys_thread *sys_thread_start(int (*fn)(void *), void *arg);
 void        sys_thread_join(sys_thread *t);
+void        sys_thread_detach(sys_thread *t);   // it ends by itself
 sys_mutex  *sys_mutex_new(void);
 void        sys_lock(sys_mutex *m);
 void        sys_unlock(sys_mutex *m);

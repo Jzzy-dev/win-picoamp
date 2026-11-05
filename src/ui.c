@@ -22,6 +22,7 @@
 #include "sys.h"
 #include "util.h"
 #include "pages.h"
+#include "radiodir.h"
 
 #define LIST_ROW 19
 #define LIST_N   4
@@ -152,24 +153,73 @@ static void ticker_draw(ticker *t)
 }
 
 // ---------------- the list ----------------
-static void open_place(const char *place, const char *select_target)
+static lib_list     loading;               // a list of the directory coming in
+static bool         is_loading, loading_more;
+static char         loading_select[2048];
+static int          loading_sel;           // ("More stations...": stay where we were)
+static bool         searching;             // / or J: the search line
+static char         search_text[64];
+
+static void take_list(lib_list *nl, const char *select_target)
 {
-    lib_list nl = { 0 };
-    if (!lib_open(&nl, place))
-    {
-        lib_free(&nl);
-        ui_message("FOLDER NOT FOUND", true);
-        if (!list.e && strcmp(place, "")) open_place("", NULL);
-        return;
-    }
     lib_free(&list);
-    list = nl;
+    list = *nl;
+    memset(nl, 0, sizeof *nl);
     sel = top = 0;
     if (select_target)
         for (int i = 0; i < list.count; i++)
             if (!strcmp(list.e[i].target, select_target)) { sel = i; break; }
     if (sel >= LIST_N) top = sel - LIST_N + 1;
     tk_list.text[0] = 0;
+}
+
+static void open_place(const char *place, const char *select_target)
+{
+    lib_list nl = { 0 };
+    if (is_loading) { lib_cancel(); lib_free(&loading); is_loading = false; }
+    int r = lib_open(&nl, place);
+    if (r == LIB_PENDING)
+    {
+        // the old list stays until the new one is in
+        lib_free(&nl);
+        is_loading = true;
+        loading_more = false;
+        u_copy(loading_select, sizeof loading_select, select_target ? select_target : "");
+        return;
+    }
+    if (r == LIB_FAIL)
+    {
+        lib_free(&nl);
+        ui_message("FOLDER NOT FOUND", true);
+        if (!list.e && strcmp(place, "")) open_place("", NULL);
+        return;
+    }
+    take_list(&nl, select_target);
+}
+
+static void loading_poll(void)
+{
+    if (!is_loading) return;
+    int r = lib_poll(&loading);
+    if (r == LIB_PENDING) return;
+    is_loading = false;
+    if (r == LIB_FAIL)
+    {
+        lib_free(&loading);
+        char m[200];
+        snprintf(m, sizeof m, "%s", lib_error()[0] ? lib_error() : "No answer from the station directory");
+        ui_message(m, true);
+        return;
+    }
+    if (loading.count <= 1) { lib_free(&loading); ui_message("No stations found", true); return; }
+    if (loading_more)
+    {
+        int s = loading_sel;
+        take_list(&loading, NULL);
+        sel = s < list.count ? s : list.count - 1;
+        top = sel >= LIST_N ? sel - LIST_N + 1 : 0;
+    }
+    else take_list(&loading, loading_select[0] ? loading_select : NULL);
 }
 
 static void move(int d)
@@ -200,8 +250,13 @@ static void activate(void)
     if (!list.count) return;
     lib_entry *e = &list.e[sel];
     if (e->type == E_PARENT) { go_parent(); return; }
+    if (e->type == E_MORE)
+    {
+        if (lib_more(&list) == LIB_PENDING) { is_loading = loading_more = true; loading_sel = sel; }
+        return;
+    }
     if (e->type == E_FOLDER) { open_place(e->target, NULL); return; }
-    if (e->type == E_STATION) { audio_play_url(e->target, e->name); return; }
+    if (e->type == E_STATION) { audio_play_url(e->target, e->name); rd_click(e->uuid); return; }
     // a file: the folder's music files are the play list
     int n = 0, start = 0;
     const char **files = malloc(sizeof(char *) * (size_t)list.count);
@@ -535,7 +590,15 @@ static void draw_view(void)
 
 static void draw_list(void)
 {
-    if (msg[0] && sys_millis() < msg_until) gfx_text6(18, 1, 30, msg, msg_col, 0, 0);
+    if (searching)
+    {
+        char t[100];
+        snprintf(t, sizeof t, "SEARCH: %s%s", search_text, (sys_millis() / 400) & 1 ? "_" : " ");
+        gfx_fill(18, 0, 32, A_NORM);
+        gfx_text6(18, 1, 30, t, COL(WHITE, NAVY), 0, 0);
+    }
+    else if (is_loading) gfx_text6(18, 1, 30, "LOADING THE LIST...", COL(GREEN, NAVY), 0, 0);
+    else if (msg[0] && sys_millis() < msg_until) gfx_text6(18, 1, 30, msg, msg_col, 0, 0);
     else
     {
         msg[0] = 0;
@@ -657,6 +720,7 @@ void ui_frame(void)
     audio_status_get(&st);
     viz_poll(st.state == ST_PLAYING && !st.buffering, &viz);
     clock_service_tick();
+    loading_poll();
     if (st.err_gen != err_seen)
     {
         err_seen = st.err_gen;
@@ -728,6 +792,27 @@ void ui_key(int k)
 {
     if (help_on) { help_on = false; return; }
     if (page != PG_PLAYER) { pages[page]->key(k); return; }
+    if (searching)
+    {
+        size_t n = strlen(search_text);
+        if (k == K_ESC) searching = false;
+        else if (k == K_BS) { if (n) search_text[n - 1] = 0; }
+        else if (k == K_ENTER)
+        {
+            searching = false;
+            char t[80];
+            u_copy(t, sizeof t, search_text);
+            u_trim(t);
+            if (t[0])
+            {
+                char pl[100];
+                snprintf(pl, sizeof pl, "rb:search=%s", t);
+                open_place(pl, NULL);
+            }
+        }
+        else if (k >= 32 && k < 127 && n < 40) { search_text[n] = (char)k; search_text[n + 1] = 0; }
+        return;
+    }
     if (k >= 'a' && k <= 'z') k -= 32;
     if (eq_open)
     {
@@ -765,6 +850,11 @@ void ui_key(int k)
     case 'D': case K_DEL: fav_del(); return;
     case 'O': plat_open_folder(config_radio_dir()); return;
     case '?': help_on = true; return;
+    case '/': case 'J': searching = true; search_text[0] = 0; return;
+    case K_ESC:
+        if (is_loading) { lib_cancel(); is_loading = false; }
+        else plat_minimize();
+        return;
     }
     ui_playback_key(k);
 }
@@ -785,6 +875,7 @@ void ui_mouse(int x, int y, int button)
     if (button != MOUSE_LEFT || x < 0 || y < 0 || x >= GFX_W || y >= GFX_H) return;
     int row = y / 8, col = x / 8;
     if (row == 0 && col == 31) { quit_req = true; plat_quit(); return; }
+    if (searching) { searching = false; return; }
     if (eq_open && row >= 6 && row <= 15 && col >= 1 && col <= 24) { eq_point(x - 8, y - 48, true); return; }
     if (eq_open && row == 16 && col >= 17 && col <= 24) { eq_open = false; return; }
     if (row == 4 && col >= 1 && col <= 30)
@@ -853,6 +944,27 @@ void ui_drop(const char *const *paths, int n)
     }
     if (m) audio_play_files(music, m, 0);
     free(music);
+}
+
+char *ui_describe(bool the_list)
+{
+    size_t n = 65536, o = 0;
+    char *b = malloc(n);
+    b[0] = 0;
+    if (the_list)
+    {
+        o += (size_t)snprintf(b + o, n - o, "list %s (%d)%s\n", list.title, list.count, is_loading ? " loading" : "");
+        for (int i = 0; i < list.count && o < n - 600; i++)
+            o += (size_t)snprintf(b + o, n - o, "  %c%d %s%s%s\n", i == sel ? '>' : ' ', list.e[i].type,
+                                  list.e[i].name, list.e[i].type == E_STATION ? " = " : "",
+                                  list.e[i].type == E_STATION ? list.e[i].target : "");
+    }
+    else
+    {
+        o += (size_t)snprintf(b + o, n - o, "page %d", page);
+        if (page != PG_PLAYER && pages[page]->describe) { b[o++] = '\n'; pages[page]->describe(b + o, n - o); }
+    }
+    return b;
 }
 
 void ui_save_state(void)

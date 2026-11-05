@@ -5,6 +5,9 @@
 //   ""                the top: [Internet radio], [Music], the drives
 //   "radio:"          the station lists: every .m3u / .pls in <settings>\Radio
 //   "radio:Name.m3u"  the stations of one list
+//   "rb:..."          the Radio Browser directory: rb:top, rb:votes, rb:trend,
+//                     rb:countries, rb:genres, rb:decades, rb:country=NL|Name,
+//                     rb:genre=jazz, rb:decade=80s|1980s, rb:search=text
 //   anything else     a folder of the PC: its folders and music files
 #pragma once
 #include <stdbool.h>
@@ -18,6 +21,7 @@ typedef struct
     bool tls;               // a station over https
     char name[256];         // as shown (UTF-8)
     char target[2048];      // the place to open, the file, or the station's URL
+    char uuid[40];          // a station of the Radio Browser directory
 } lib_entry;
 
 typedef struct
@@ -29,8 +33,16 @@ typedef struct
     bool       ok;
 } lib_list;
 
+enum { LIB_FAIL = 0, LIB_OK = 1, LIB_PENDING = 2 };
+
 void lib_init(void);                    // the Radio folder and its first lists
-bool lib_open(lib_list *l, const char *place);
+// LIB_PENDING: a list of the station directory comes in the background:
+// lib_poll() until it is LIB_OK (or LIB_FAIL, lib_error() says why)
+int  lib_open(lib_list *l, const char *place);
+int  lib_poll(lib_list *l);
+int  lib_more(lib_list *l);             // "More stations...": the next page, added
+void lib_cancel(void);
+const char *lib_error(void);
 void lib_free(lib_list *l);
 void lib_parent(const char *place, char *out, size_t size);   // "" at the top
 bool lib_is_favourites(const char *place);

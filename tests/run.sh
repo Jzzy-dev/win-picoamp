@@ -21,9 +21,13 @@ ffmpeg -loglevel error -y -f lavfi -i "aevalsrc='$E':s=22050:d=12" -ac 1 -c:a li
 ffmpeg -loglevel error -y -f lavfi -i "aevalsrc='$E|$E':s=48000:d=4" "$T/Music/Album/Demo.wav"
 
 PORT=18765
+WEB=18766
 python3 tests/icy_server.py $PORT "$T/Music/01 Sine.mp3" 192 &
 SRV=$!
-trap 'kill $SRV 2>/dev/null' EXIT
+python3 tests/web_server.py $WEB http://localhost:$PORT/mid > $T/web.log 2>&1 &
+SRV2=$!
+trap 'kill $SRV $SRV2 2>/dev/null' EXIT
+export PICOAMP_RB=http://localhost:$WEB
 sleep 0.5
 printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n#EXTINF:-1,Live\r\nhttp://localhost:%d/mid\r\n' \
     $PORT $PORT $PORT $PORT $PORT > $T/cfg/Radio/Test.m3u
@@ -73,5 +77,19 @@ grep -q "localhost" $T/cfg/Radio/Favourites.m3u && { echo "FAIL favourite del"; 
 printf '#EXTM3U\n#EXTINF:-1,Dropped\nhttp://localhost:%d/stream.mp3\n' $PORT > $T/Dropped.m3u
 out=$(run "drop $PWD/$T/Dropped.m3u; wait 50")
 [ -f $T/cfg/Radio/Dropped.m3u ] && echo "ok   a dropped list is added" || { echo "FAIL dropped list"; fail=1; }
+
+# the station directory (Radio Browser): lists, a country, more stations, search
+sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini
+out=$(run "key Home; key Down; key Down; key Enter; wait 400; list; key Down; key Down; key Enter; wait 2500; status; key BS; key Down; key Down; key Down; key Enter; wait 400; list; key Down; key Down; key Enter; wait 400; list; key BS; key BS; key Down; key Enter; key Down; key Down; key Down; key Down; key Down; key Down; key Down; key Down; key Down; key Enter; wait 400; key End; key Enter; wait 400; list; key /; type jazz; key Enter; wait 400; list; shot $T/search.png 3; key /; type zzz; key Enter; wait 400")
+check "directory: top stations" "$out" "list /Internet radio/Top stations (6)"
+check "directory: no AAC yet" "$out" "Station 4 = http"
+printf '%s\n' "$out" | grep -q "An AAC one" && { echo "FAIL directory: AAC station listed"; fail=1; } || echo "ok   directory: AAC left out"
+check "directory: a station plays" "$out" "state=1 .*album='Station 1'"
+grep -q "click uuid-1" $T/web.log && echo "ok   directory: the play is counted" || { echo "FAIL directory click"; fail=1; }
+check "directory: countries" "$out" "list /Internet radio/By country (3)"
+check "directory: a country" "$out" "NPO Radio 1 = http"
+check "directory: more stations" "$out" "list /Internet radio/By genre/Jazz (101)"
+check "directory: search" "$out" "list /Internet radio/Search/jazz (3)"
+check "directory: HLS left out" "$out" "Smooth Jazz 24 = http"
 
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

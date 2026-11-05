@@ -12,7 +12,7 @@ HOSTCC   ?= cc
 VERSION  ?= 0.1.0
 
 COMMON   = src/gfx.c src/ui.c src/fullscreen.c src/pages_stub.c src/audio.c src/viz.c src/eq.c src/stream.c src/net.c \
-           src/library.c src/config.c src/tags.c src/sys.c src/util.c src/png.c src/miniaudio_impl.c
+           src/library.c src/radiodir.c src/json.c src/config.c src/tags.c src/sys.c src/util.c src/png.c src/script.c src/miniaudio_impl.c
 HEADERS  = $(wildcard src/*.h)
 CFLAGS   = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
            -Ithird_party/miniaudio -DPICOAMP_VERSION=\"$(VERSION)\"

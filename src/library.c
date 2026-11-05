@@ -6,6 +6,7 @@
 #include "config.h"
 #include "sys.h"
 #include "util.h"
+#include "radiodir.h"
 
 #define FAV_FILE "Favourites.m3u"
 
@@ -130,12 +131,15 @@ static void list_name(const char *file, char *out, size_t size)
     if (dot && dot != out) *dot = 0;
 }
 
-bool lib_open(lib_list *l, const char *place)
+static int rb_open(lib_list *l, const char *place);
+
+int lib_open(lib_list *l, const char *place)
 {
     lib_free(l);
     u_copy(l->place, sizeof l->place, place);
     l->ok = true;
     if (place[0]) add(l, E_PARENT, "..", "");          // as on the MSX: [..] first
+    if (!strncmp(place, "rb:", 3)) return rb_open(l, place);
     if (!place[0])
     {
         u_copy(l->title, sizeof l->title, "/");
@@ -153,7 +157,7 @@ bool lib_open(lib_list *l, const char *place)
 #ifndef _WIN32
         add(l, E_FOLDER, "/", "/");
 #endif
-        return true;
+        return LIB_OK;
     }
     if (!strncmp(place, "radio:", 6))
     {
@@ -164,9 +168,15 @@ bool lib_open(lib_list *l, const char *place)
             u_copy(l->title, sizeof l->title, "/Internet radio");
             sys_dirent *d;
             int n;
-            if (!sys_list_dir(rd, &d, &n)) { l->ok = false; return false; }
-            // Favourites first, the others by name
+            if (!sys_list_dir(rd, &d, &n)) { l->ok = false; return LIB_FAIL; }
+            // Favourites, the directory's folders, then the lists of the folder by name
             add(l, E_FOLDER, "Favourites", "radio:" FAV_FILE);
+            add(l, E_FOLDER, "Top stations", "rb:top");
+            add(l, E_FOLDER, "Most voted", "rb:votes");
+            add(l, E_FOLDER, "Trending now", "rb:trend");
+            add(l, E_FOLDER, "By country", "rb:countries");
+            add(l, E_FOLDER, "By genre", "rb:genres");
+            add(l, E_FOLDER, "By decade", "rb:decades");
             int first = l->count;
             for (int i = 0; i < n; i++)
             {
@@ -178,24 +188,24 @@ bool lib_open(lib_list *l, const char *place)
             }
             sys_free_dir(d, n);
             qsort(l->e + first, (size_t)(l->count - first), sizeof *l->e, cmp_entry);
-            return true;
+            return LIB_OK;
         }
         char nm[256], path[2200];
         list_name(file, nm, sizeof nm);
         snprintf(l->title, sizeof l->title, "/Internet radio/%s", nm);
         u_join(path, sizeof path, rd, file);
         char *text = sys_read_file(path, NULL);
-        if (!text) { l->ok = false; return false; }
+        if (!text) { l->ok = false; return LIB_FAIL; }
         parse_list(text, add_station, l);
         free(text);
-        return true;
+        return LIB_OK;
     }
     // a folder of the PC
     u_copy(l->title, sizeof l->title, place);
     for (char *p = l->title; *p; p++) if (*p == '\\') *p = '/';
     sys_dirent *d;
     int n;
-    if (!sys_list_dir(place, &d, &n)) { l->ok = false; return false; }
+    if (!sys_list_dir(place, &d, &n)) { l->ok = false; return LIB_FAIL; }
     for (int i = 0; i < n; i++)
     {
         char full[2200];
@@ -205,7 +215,7 @@ bool lib_open(lib_list *l, const char *place)
     }
     sys_free_dir(d, n);
     if (l->count) qsort(l->e, (size_t)l->count, sizeof *l->e, cmp_entry);
-    return true;
+    return LIB_OK;
 }
 
 void lib_free(lib_list *l)
@@ -218,6 +228,13 @@ void lib_free(lib_list *l)
 void lib_parent(const char *place, char *out, size_t size)
 {
     if (!place[0]) { out[0] = 0; return; }
+    if (!strncmp(place, "rb:", 3))
+    {
+        const char *p = place + 3;
+        u_copy(out, size, !strncmp(p, "country=", 8) ? "rb:countries" : !strncmp(p, "genre=", 6) ? "rb:genres"
+                        : !strncmp(p, "decade=", 7) ? "rb:decades" : "radio:");
+        return;
+    }
     if (!strncmp(place, "radio:", 6)) { u_copy(out, size, place[6] ? "radio:" : ""); return; }
     char buf[2048];
     u_copy(buf, sizeof buf, place);
@@ -334,4 +351,173 @@ bool lib_import_list(const char *path, char *msg, size_t msglen)
     if (ok) snprintf(msg, msglen, "%d stations: Internet radio/%s", n, nm);
     else snprintf(msg, msglen, "Cannot write to the Radio folder");
     return ok;
+}
+
+// ---------------- the Radio Browser directory ----------------
+static const char *const genres[] = {
+    "pop", "rock", "classic rock", "hard rock", "metal", "punk", "alternative", "indie", "jazz", "smooth jazz",
+    "blues", "soul", "funk", "disco", "rnb", "hip hop", "rap", "reggae", "latin", "salsa", "country", "folk",
+    "classical", "opera", "ambient", "chillout", "lounge", "dance", "electronic", "house", "techno", "trance",
+    "drum and bass", "dubstep", "eurodance", "schlager", "chanson", "world", "christmas", "kids", "news", "talk",
+    "sports", "comedy", "soundtrack", "instrumental", "piano", "new age", "gospel", "christian",
+};
+static const char *const decades[][2] = {
+    { "1950s", "50s" }, { "1960s", "60s" }, { "1970s", "70s" }, { "1980s", "80s" }, { "1990s", "90s" },
+    { "2000s", "00s" }, { "2010s", "10s" }, { "Oldies", "oldies" },
+};
+#define PAGE 60
+
+static char     rb_place[2048];      // the list that comes in
+static int      rb_offset;           // its next page
+static bool     rb_pending;
+static rd_item *countries;           // kept: the countries come once
+static int      n_countries;
+static char     rb_err[160];
+
+const char *lib_error(void) { return rb_err; }
+
+// the query of a station list, and its title
+static bool rb_query(const char *place, char *q, size_t qn, char *title, size_t tn)
+{
+    const char *p = place + 3;
+    char enc[600], name[300];
+    if (!strcmp(p, "top"))   { snprintf(q, qn, "order=clickcount&reverse=true"); snprintf(title, tn, "/Internet radio/Top stations"); return true; }
+    if (!strcmp(p, "votes")) { snprintf(q, qn, "order=votes&reverse=true"); snprintf(title, tn, "/Internet radio/Most voted"); return true; }
+    if (!strcmp(p, "trend")) { snprintf(q, qn, "order=clicktrend&reverse=true"); snprintf(title, tn, "/Internet radio/Trending now"); return true; }
+    if (!strncmp(p, "country=", 8))
+    {
+        const char *bar = strchr(p + 8, '|');
+        char code[16];
+        snprintf(code, sizeof code, "%.*s", bar ? (int)(bar - p - 8) : 2, p + 8);
+        rd_urlenc(enc, sizeof enc, code);
+        snprintf(q, qn, "countrycode=%s&order=clickcount&reverse=true", enc);
+        snprintf(title, tn, "/Internet radio/By country/%s", bar ? bar + 1 : code);
+        return true;
+    }
+    if (!strncmp(p, "genre=", 6) || !strncmp(p, "decade=", 7))
+    {
+        bool genre = p[0] == 'g';
+        const char *t = p + (genre ? 6 : 7);
+        const char *bar = strchr(t, '|');
+        snprintf(name, sizeof name, "%.*s", bar ? (int)(bar - t) : (int)strlen(t), t);
+        rd_urlenc(enc, sizeof enc, name);
+        snprintf(q, qn, "tag=%s&order=clickcount&reverse=true", enc);
+        if (genre && name[0] >= 'a' && name[0] <= 'z') name[0] = (char)(name[0] - 32);
+        snprintf(title, tn, "/Internet radio/%s/%s", genre ? "By genre" : "By decade", bar ? bar + 1 : name);
+        return true;
+    }
+    if (!strncmp(p, "search=", 7))
+    {
+        rd_urlenc(enc, sizeof enc, p + 7);
+        snprintf(q, qn, "name=%s&order=clickcount&reverse=true", enc);
+        snprintf(title, tn, "/Internet radio/Search/%s", p + 7);
+        return true;
+    }
+    return false;
+}
+
+static void rb_build(lib_list *l, const char *place)
+{
+    lib_free(l);
+    u_copy(l->place, sizeof l->place, place);
+    l->ok = true;
+    add(l, E_PARENT, "..", "");
+    if (!strcmp(place, "rb:countries"))
+    {
+        u_copy(l->title, sizeof l->title, "/Internet radio/By country");
+        for (int i = 0; i < n_countries; i++)
+        {
+            char tg[300];
+            snprintf(tg, sizeof tg, "rb:country=%s|%s", countries[i].code, countries[i].name);
+            add(l, E_FOLDER, countries[i].name, tg);
+        }
+        return;
+    }
+    char q[800];
+    rb_query(place, q, sizeof q, l->title, sizeof l->title);
+    int n, raw;
+    const rd_item *it = rd_items(&n, &raw);
+    for (int i = 0; i < n; i++)
+    {
+        add(l, E_STATION, it[i].name, it[i].url);
+        u_copy(l->e[l->count - 1].uuid, sizeof l->e[0].uuid, it[i].uuid);
+    }
+    // a full page may have more after it
+    if (raw >= PAGE) add(l, E_MORE, "More stations...", place);
+}
+
+static int rb_open(lib_list *l, const char *place)
+{
+    const char *p = place + 3;
+    if (!strcmp(p, "genres") || !strcmp(p, "decades"))
+    {
+        bool g = p[0] == 'g';
+        u_copy(l->title, sizeof l->title, g ? "/Internet radio/By genre" : "/Internet radio/By decade");
+        if (g)
+            for (unsigned i = 0; i < sizeof genres / sizeof genres[0]; i++)
+            {
+                char nm[40], tg[60];
+                snprintf(nm, sizeof nm, "%s", genres[i]);
+                nm[0] = (char)(nm[0] - 32);
+                snprintf(tg, sizeof tg, "rb:genre=%s", genres[i]);
+                add(l, E_FOLDER, nm, tg);
+            }
+        else
+            for (unsigned i = 0; i < sizeof decades / sizeof decades[0]; i++)
+            {
+                char tg[60];
+                snprintf(tg, sizeof tg, "rb:decade=%s|%s", decades[i][1], decades[i][0]);
+                add(l, E_FOLDER, decades[i][0], tg);
+            }
+        return LIB_OK;
+    }
+    if (!strcmp(p, "countries") && countries) { rb_build(l, place); return LIB_OK; }
+    u_copy(rb_place, sizeof rb_place, place);
+    rb_pending = true;
+    rb_offset = 0;
+    rb_err[0] = 0;
+    if (!strcmp(p, "countries")) { rd_fetch("/json/countries?hidebroken=true&order=name", true, false); return LIB_PENDING; }
+    char q[800], title[512], path[1100];
+    if (!rb_query(place, q, sizeof q, title, sizeof title)) { rb_pending = false; u_copy(rb_err, sizeof rb_err, "Unknown list"); return LIB_FAIL; }
+    snprintf(path, sizeof path, "/json/stations/search?%s&codec=MP3&hidebroken=true&limit=%d", q, PAGE);
+    rd_fetch(path, false, false);
+    return LIB_PENDING;
+}
+
+int lib_more(lib_list *l)
+{
+    char q[800], title[512], path[1100];
+    if (!rb_query(l->place, q, sizeof q, title, sizeof title)) return LIB_FAIL;
+    u_copy(rb_place, sizeof rb_place, l->place);
+    rb_pending = true;
+    rb_offset += PAGE;
+    snprintf(path, sizeof path, "/json/stations/search?%s&codec=MP3&hidebroken=true&limit=%d&offset=%d", q, PAGE, rb_offset);
+    rd_fetch(path, false, true);
+    return LIB_PENDING;
+}
+
+int lib_poll(lib_list *l)
+{
+    if (!rb_pending) return LIB_FAIL;
+    int s = rd_state();
+    if (s == RD_LOADING) return LIB_PENDING;
+    rb_pending = false;
+    if (s != RD_DONE) { u_copy(rb_err, sizeof rb_err, s == RD_FAILED ? rd_error() : "Stopped"); return LIB_FAIL; }
+    if (!strcmp(rb_place, "rb:countries"))
+    {
+        int n;
+        const rd_item *it = rd_items(&n, NULL);
+        free(countries);
+        countries = malloc(sizeof *countries * (size_t)(n ? n : 1));
+        memcpy(countries, it, sizeof *countries * (size_t)n);
+        n_countries = n;
+    }
+    rb_build(l, rb_place);
+    return LIB_OK;
+}
+
+void lib_cancel(void)
+{
+    if (rb_pending) rd_cancel();
+    rb_pending = false;
 }

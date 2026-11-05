@@ -37,6 +37,12 @@ void sys_thread_join(sys_thread *t)
     free(t);
 }
 
+void sys_thread_detach(sys_thread *t)
+{
+    // (the thread has t's fn and arg already; t itself stays until the end)
+    if (t) CloseHandle(t->h);
+}
+
 sys_mutex *sys_mutex_new(void)
 {
     sys_mutex *m = calloc(1, sizeof *m);
@@ -204,6 +210,11 @@ void sys_thread_join(sys_thread *t)
     if (!t) return;
     pthread_join(t->t, NULL);
     free(t);
+}
+
+void sys_thread_detach(sys_thread *t)
+{
+    if (t) pthread_detach(t->t);
 }
 
 sys_mutex *sys_mutex_new(void)

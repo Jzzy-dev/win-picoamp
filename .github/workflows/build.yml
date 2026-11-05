@@ -38,6 +38,13 @@ jobs:
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--smoke','radio.png','--play','https://ice1.somafm.com/groovesalad-128-mp3','--wait','12000' -Wait -PassThru
           Get-Content radio.png.txt
           if (-not (Select-String -Path radio.png.txt -Pattern 'state=1 .*stream=1 tls=1 buffering=0' -Quiet)) { throw "the station did not play" }
+      - name: Live check (the station directory, a search, a station)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $s = 'key Home; key Enter; key Down; key Down; key Enter; wait 8000; list; key Down; key Enter; wait 9000; status; key BS; key Down; key Down; key Down; key Enter; wait 8000; list; key /; type jazz; key Enter; wait 8000; list; quit'
+          $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live.txt' -Wait -PassThru
+          Get-Content live.txt | Select-Object -First 80
       - name: Package
         shell: pwsh
         run: |
@@ -59,6 +66,7 @@ jobs:
             smoke.png.txt
             radio.png
             radio.png.txt
+            live.txt
       - name: Release (tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

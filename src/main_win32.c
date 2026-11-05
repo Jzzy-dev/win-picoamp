@@ -23,6 +23,7 @@
 #include "config.h"
 #include "net.h"
 #include "png.h"
+#include "script.h"
 #include "sys.h"
 #include "util.h"
 
@@ -71,6 +72,7 @@ void plat_open_folder(const char *path)
 }
 
 void plat_quit(void) { PostMessageW(hwnd, WM_CLOSE, 0, 0); }
+void plat_minimize(void) { ShowWindow(hwnd, SW_MINIMIZE); }
 
 // ---------------- drawing ----------------
 static void compute_dest(int cw, int ch)
@@ -301,8 +303,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_CHAR:
-        if (wp == 27) { ShowWindow(h, SW_MINIMIZE); return 0; }     // as on the MSX: the music plays on
-        if (wp == 13 || wp == 8 || (wp >= 32 && wp < 127)) ui_key((int)wp);
+        if (wp == 13 || wp == 8 || wp == 27 || (wp >= 32 && wp < 127)) ui_key((int)wp);
         return 0;
     case WM_SYSKEYDOWN:
         if (wp == VK_RETURN) { set_fullscreen(!cfg.fullscreen); return 0; }
@@ -466,20 +467,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     dpi_aware();
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    char *smoke = NULL, *smoke_url = NULL;
+    char *smoke = NULL, *smoke_url = NULL, *script = NULL, *script_log = NULL;
     int smoke_ms = 2500;
     for (int i = 1; i + 1 < argc; i++)
     {
         if (!wcscmp(argv[i], L"--smoke")) smoke = narrow(argv[i + 1]);
         if (!wcscmp(argv[i], L"--play")) smoke_url = narrow(argv[i + 1]);
         if (!wcscmp(argv[i], L"--wait")) smoke_ms = _wtoi(argv[i + 1]);
+        // --script "commands" [--log file]: run them (see script.h), then quit
+        if (!wcscmp(argv[i], L"--script")) script = narrow(argv[i + 1]);
+        if (!wcscmp(argv[i], L"--log")) script_log = narrow(argv[i + 1]);
     }
-    bool smoke_run = smoke != NULL;
+    if (script && !smoke) smoke = NULL;
+    bool smoke_run = smoke != NULL || script != NULL;
+    FILE *script_out = NULL;
 
     net_init();
     gfx_init();
     config_load();
-    if (smoke) { cfg.win_w = 1000; cfg.win_h = 700; cfg.win_x = cfg.win_y = 40; cfg.fullscreen = cfg.maximized = false; cfg.scale = SCALE_FIT; }
+    if (smoke || script) { cfg.win_w = 1000; cfg.win_h = 700; cfg.win_x = cfg.win_y = 40; cfg.fullscreen = cfg.maximized = false; cfg.scale = SCALE_FIT; }
     audio_init(false);
     ui_init();
 
@@ -517,6 +523,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     RegisterHotKey(hwnd, HK_PREV, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK);
 
     if (smoke && smoke_url) audio_play_url(smoke_url, "Smoke test");
+    if (script)
+    {
+        script_out = script_log ? sys_fopen(script_log, "w") : NULL;
+        script_start(script, script_out);
+    }
     // files given on the command line (or "Open with")
     if (!smoke && argc > 1)
     {
@@ -547,6 +558,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
             next += 16;
             if ((int32_t)(now - next) > 100) next = now + 16;    // behind (a drag, a sleep): no catching up
             ui_frame();
+            if (script && !script_step())
+            {
+                script = NULL;
+                if (script_out) fclose(script_out);
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
             update_title();
             if (!IsIconic(hwnd)) redraw();
             if (smoke && now - start > (uint32_t)smoke_ms)
@@ -575,6 +592,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
         MsgWaitForMultipleObjects(0, NULL, FALSE, wait, QS_ALLINPUT);
     }
     timeEndPeriod(1);
+    if (smoke_run && !smoke)
+    {
+        // a script run: leave the settings as they were
+    }
     if (!smoke_run)
     {
         ui_save_state();

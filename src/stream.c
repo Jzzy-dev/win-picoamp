@@ -254,6 +254,7 @@ stream *stream_start(const char *url)
     snprintf(s->url, sizeof s->url, "%s", url);
     sys_thread *t = sys_thread_start(run, s);
     if (!t) { s->refs = 1; fail(s, "No thread"); s->info.ended = true; }
+    else sys_thread_detach(t);
     // the thread is never joined: it ends by itself once stopped
     return s;
 }
