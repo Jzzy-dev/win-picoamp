@@ -1,7 +1,7 @@
 // script.h - a little script that drives PicoAmp (the tests, the CI's run on
 // Windows): commands separated by ';' or new lines
 //   wait <ms> | key <char or name> | type <text> | click <x> <y> [right] |
-//   drop <path> | shot <file.png> [scale] | status | list | page | quit
+//   drop <path> | play <url> | shot <file.png> [scale] | status | list | page | quit
 #pragma once
 #include <stdbool.h>
 #include <stdio.h>

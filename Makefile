@@ -12,7 +12,7 @@ HOSTCC   ?= cc
 VERSION  ?= 0.1.0
 
 COMMON   = src/gfx.c src/ui.c src/fullscreen.c src/clock.c src/weather.c src/wxsvc.c src/news.c src/newsfeed.c src/audio.c src/viz.c src/eq.c src/stream.c src/net.c \
-           src/library.c src/radiodir.c src/json.c src/config.c src/tags.c src/sys.c src/util.c src/png.c src/script.c src/miniaudio_impl.c
+           src/library.c src/radiodir.c src/json.c src/config.c src/tags.c src/aacdec.c src/sys.c src/util.c src/png.c src/script.c src/miniaudio_impl.c
 HEADERS  = $(wildcard src/*.h)
 CFLAGS   = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
            -Ithird_party/miniaudio -DPICOAMP_VERSION=\"$(VERSION)\"
@@ -37,7 +37,7 @@ WINOBJ = $(patsubst src/%.c,build/%.win.o,$(COMMON) src/main_win32.c) build/pico
 
 build/PicoAmp.exe: $(WINOBJ)
 	$(WINCC) -o $@ $(WINOBJ) -mwindows -municode -static \
-	    -lwinhttp -lws2_32 -lgdi32 -luser32 -lshell32 -lole32 -lwinmm -ldwmapi -lshlwapi -luuid
+	    -lwinhttp -lws2_32 -lgdi32 -luser32 -lshell32 -lole32 -lwinmm -ldwmapi -lshlwapi -lmfplat -lmfuuid -luuid
 
 # ---- the test build (Linux) ----
 build/%.host.o: src/%.c $(HEADERS) | build

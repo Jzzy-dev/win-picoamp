@@ -479,7 +479,7 @@ static int rb_open(lib_list *l, const char *place)
     if (!strcmp(p, "countries")) { rd_fetch("/json/countries?hidebroken=true&order=name", true, false); return LIB_PENDING; }
     char q[800], title[512], path[1100];
     if (!rb_query(place, q, sizeof q, title, sizeof title)) { rb_pending = false; u_copy(rb_err, sizeof rb_err, "Unknown list"); return LIB_FAIL; }
-    snprintf(path, sizeof path, "/json/stations/search?%s&codec=MP3&hidebroken=true&limit=%d", q, PAGE);
+    snprintf(path, sizeof path, "/json/stations/search?%s%s&hidebroken=true&limit=%d", q, rd_codec_query(), PAGE);
     rd_fetch(path, false, false);
     return LIB_PENDING;
 }
@@ -491,7 +491,7 @@ int lib_more(lib_list *l)
     u_copy(rb_place, sizeof rb_place, l->place);
     rb_pending = true;
     rb_offset += PAGE;
-    snprintf(path, sizeof path, "/json/stations/search?%s&codec=MP3&hidebroken=true&limit=%d&offset=%d", q, PAGE, rb_offset);
+    snprintf(path, sizeof path, "/json/stations/search?%s%s&hidebroken=true&limit=%d&offset=%d", q, rd_codec_query(), PAGE, rb_offset);
     rd_fetch(path, false, true);
     return LIB_PENDING;
 }

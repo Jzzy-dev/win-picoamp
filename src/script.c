@@ -59,6 +59,7 @@ bool script_step(void)
             until = sys_millis() + 20;
             return true;
         }
+        else if (!strcmp(cmd, "play")) audio_play_url(a, "Script");
         else if (!strcmp(cmd, "drop")) { const char *p[1] = { a }; ui_drop(p, 1); }
         else if (!strcmp(cmd, "shot"))
         {

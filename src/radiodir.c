@@ -15,6 +15,7 @@
 #include "net.h"
 #include "sys.h"
 #include "util.h"
+#include "aacdec.h"
 
 static const char *const servers[] = {
     "all.api.radio-browser.info", "de1.api.radio-browser.info", "de2.api.radio-browser.info",
@@ -32,7 +33,15 @@ typedef struct { char path[1024]; bool countries, append; unsigned gen; } job_t;
 
 bool rd_codec_ok(const char *codec)
 {
-    return !u_stricmp(codec, "MP3");
+    static int aac = -1;
+    if (aac < 0) aac = aacdec_available();
+    return !u_stricmp(codec, "MP3") || (aac && (!u_stricmp(codec, "AAC") || !u_stricmp(codec, "AAC+")));
+}
+
+const char *rd_codec_query(void)
+{
+    // only MP3 asked for when that is all PicoAmp plays; else the others are left out here
+    return rd_codec_ok("AAC") ? "" : "&codec=MP3";
 }
 
 void rd_urlenc(char *out, size_t size, const char *s)

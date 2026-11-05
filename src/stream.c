@@ -7,6 +7,7 @@
 #include "net.h"
 #include "sys.h"
 #include "util.h"
+#include "aacdec.h"
 
 #define RING_SIZE (512 * 1024)     // about 30 s of 128 kbit/s
 
@@ -164,6 +165,9 @@ static int run(void *arg)
             continue;
         }
         bool mp3 = !type[0] || strstr(type, "mpeg") || strstr(type, "mp3") || !strcmp(type, "application/octet-stream");
+        static int aac_ok = -1;
+        if (aac_ok < 0) aac_ok = aacdec_available();
+        if (strstr(type, "aac") && aac_ok) mp3 = true;          // (AAC: Windows decodes it)
         if (!mp3)
         {
             char m[160];
@@ -221,7 +225,7 @@ static int run(void *arg)
                 }
                 size_t k = n - p;
                 if (metaint && (size_t)until_meta < k) k = (size_t)until_meta;
-                if (!got_rate)
+                if (!got_rate && !strstr(type, "aac"))
                 {
                     int b = mp3_bitrate(buf + p, k);
                     if (b) { sys_lock(s->lock); s->info.bitrate = b; sys_unlock(s->lock); got_rate = true; }

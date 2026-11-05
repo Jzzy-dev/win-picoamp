@@ -16,6 +16,7 @@
 #include "audio.h"
 #include "stream.h"
 #include "tags.h"
+#include "aacdec.h"
 #include "viz.h"
 #include "sys.h"
 #include "util.h"
@@ -69,6 +70,9 @@ static uint32_t     src_rate, src_ch;
 static uint64_t     base_frames;          // source frames before the flush (seek)
 static stream      *strm;
 static bool         strm_decoding, strm_rebuffer;
+static aacdec      *aac;                  // an AAC station: Windows' decoder
+static unsigned char aac_buf[8192];       // ADTS bytes not yet a whole frame
+static size_t       aac_have;
 static unsigned     strm_meta_seen;
 static char       **pl;
 static int          pl_n, pl_pos;
@@ -158,17 +162,19 @@ static void close_source(void)
     if (dec_open) ma_decoder_uninit(&dec);
     if (conv_open) ma_data_converter_uninit(&conv, NULL);
     dec_open = conv_open = false;
+    if (aac) aacdec_close(aac);
+    aac = NULL;
+    aac_have = 0;
     if (strm) stream_release(strm);
     strm = NULL;
     strm_decoding = strm_rebuffer = false;
     src = SRC_NONE;
 }
 
-static bool open_converter(void)
+static bool open_converter_for(ma_uint32 rate, ma_uint32 ch)
 {
-    ma_format f;
-    ma_uint32 ch, rate;
-    if (ma_decoder_get_data_format(&dec, &f, &ch, &rate, NULL, 0) != MA_SUCCESS || !rate || !ch) return false;
+    if (conv_open) ma_data_converter_uninit(&conv, NULL);
+    conv_open = false;
     src_rate = rate;
     src_ch = ch;
     ma_data_converter_config cc = ma_data_converter_config_init(ma_format_s16, ma_format_s16, 2, 2, rate, dev_rate);
@@ -176,6 +182,14 @@ static bool open_converter(void)
     cc.resampling.linear.lpfOrder = 4;
     conv_open = ma_data_converter_init(&cc, NULL, &conv) == MA_SUCCESS;
     return conv_open;
+}
+
+static bool open_converter(void)
+{
+    ma_format f;
+    ma_uint32 ch, rate;
+    if (ma_decoder_get_data_format(&dec, &f, &ch, &rate, NULL, 0) != MA_SUCCESS || !rate || !ch) return false;
+    return open_converter_for(rate, ch);
 }
 
 static void stop_all(void)
@@ -575,6 +589,23 @@ static int dec_main(void *arg)
             if (!strm_decoding)
             {
                 if (have < PREBUFFER && !si.ended) { sys_sleep_ms(20); continue; }
+                if (strstr(si.type, "aac"))
+                {
+                    // ADTS: find the first frame for its rate and channels
+                    int r = 0, c = 0;
+                    while (!dec_abort)
+                    {
+                        if (aac_have < 7) { size_t k = s_take(aac_buf + aac_have, sizeof aac_buf - aac_have); if (!k) break; aac_have += k; continue; }
+                        if (adts_frame(aac_buf, &r, &c)) break;
+                        memmove(aac_buf, aac_buf + 1, --aac_have);
+                    }
+                    if (dec_abort) continue;
+                    aac = r ? aacdec_open(r, c) : NULL;
+                    if (!aac) { set_error(r ? "This PC cannot decode AAC" : "The stream is not AAC"); stop_all(); continue; }
+                    if (!open_converter_for((ma_uint32)r, (ma_uint32)c)) { set_error("Unknown sound format"); stop_all(); continue; }
+                    strm_decoding = true;
+                    continue;
+                }
                 ma_decoder_config dc = ma_decoder_config_init(ma_format_s16, 0, 0);
                 dc.encodingFormat = ma_encoding_format_mp3;
                 if (ma_decoder_init(s_read, s_seek, NULL, &dc, &dec) != MA_SUCCESS)
@@ -607,7 +638,47 @@ static int dec_main(void *arg)
         if (ma_pcm_rb_available_write(&rb) < CHUNK * 4) { sys_sleep_ms(5); continue; }
         ma_uint64 got = 0;
         if (src_ch > 8) { set_error("Too many channels"); stop_all(); continue; }
-        ma_decoder_read_pcm_frames(&dec, buf, CHUNK, &got);     // (buf: up to 8 channels)
+        if (aac)
+        {
+            // a whole ADTS frame, then Windows' decoder
+            size_t flen = 0;
+            int r = 0, c = 0;
+            while (!dec_abort)
+            {
+                if (aac_have >= 7 && (flen = adts_frame(aac_buf, &r, &c)) && flen <= sizeof aac_buf)
+                {
+                    if (aac_have >= flen) break;
+                }
+                else if (aac_have >= 7) { memmove(aac_buf, aac_buf + 1, --aac_have); flen = 0; continue; }
+                size_t k = s_take(aac_buf + aac_have, sizeof aac_buf - aac_have);
+                if (!k) { flen = 0; break; }
+                aac_have += k;
+            }
+            if (flen && aac_have >= flen)
+            {
+                static int16_t pcm[4096 * 8];
+                int orate = 0, och = 0;
+                int n = aacdec_decode(aac, aac_buf, flen, pcm, 4096, &orate, &och);
+                memmove(aac_buf, aac_buf + flen, aac_have - flen);
+                aac_have -= flen;
+                if (n > 0 && och > 0 && och <= 8)
+                {
+                    if ((ma_uint32)orate != src_rate || (ma_uint32)och != src_ch)
+                    {
+                        open_converter_for((ma_uint32)orate, (ma_uint32)och);
+                        sys_lock(st_lock);
+                        st.rate = orate;
+                        st.channels = och;
+                        st_changed();
+                        sys_unlock(st_lock);
+                    }
+                    for (int o = 0; o < n; o += CHUNK) push_frames(pcm + (size_t)o * (size_t)och, (ma_uint64)(n - o < CHUNK ? n - o : CHUNK));
+                }
+                continue;
+            }
+            got = 0;
+        }
+        else ma_decoder_read_pcm_frames(&dec, buf, CHUNK, &got);     // (buf: up to 8 channels)
         if (got)
         {
             push_frames(buf, got);

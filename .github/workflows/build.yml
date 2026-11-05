@@ -24,41 +24,48 @@ jobs:
           case "$GITHUB_REF" in refs/tags/v*) VERSION=${GITHUB_REF#refs/tags/v};; esac
           make CROSS= VERSION=$VERSION
           ls -la build/PicoAmp.exe
-      - name: Smoke test (the window, drawn and taken)
+      - name: "Smoke test (the window, drawn and taken)"
         shell: pwsh
         run: |
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--smoke','smoke.png' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "exit code $($p.ExitCode)" }
           Get-Content smoke.png.txt
           if (-not (Test-Path smoke.png)) { throw "no screenshot" }
-      - name: Smoke test (an HTTPS station through WinHTTP)
+      - name: "Smoke test (an HTTPS station through WinHTTP)"
         shell: pwsh
         continue-on-error: true
         run: |
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--smoke','radio.png','--play','https://ice1.somafm.com/groovesalad-128-mp3','--wait','12000' -Wait -PassThru
           Get-Content radio.png.txt
           if (-not (Select-String -Path radio.png.txt -Pattern 'state=1 .*stream=1 tls=1 buffering=0' -Quiet)) { throw "the station did not play" }
-      - name: Live check (the station directory, a search, a station)
+      - name: "Live check (the station directory, a search, a station)"
         shell: pwsh
         continue-on-error: true
         run: |
           $s = 'key Home; key Enter; key Down; key Down; key Enter; wait 8000; list; key Down; key Enter; wait 9000; status; key BS; key Down; key Down; key Down; key Enter; wait 8000; list; key /; type jazz; key Enter; wait 8000; list; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live.txt' -Wait -PassThru
           Get-Content live.txt | Select-Object -First 80
-      - name: Live check (clock, place, weather)
+      - name: "Live check (clock, place, weather)"
         shell: pwsh
         continue-on-error: true
         run: |
           $s = 'key C; wait 9000; page; key L; type Amsterdam; key Enter; wait 6000; key Enter; wait 6000; page; key W; wait 500; page; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live2.txt' -Wait -PassThru
           Get-Content live2.txt
-      - name: Live check (the news: a BBC feed, a story, its full article)
+      - name: "Live check (the news: a BBC feed, a story, its full article)"
         shell: pwsh
         continue-on-error: true
         run: |
           $s = 'key T; wait 500; key Home; key Enter; wait 8000; page; key Enter; key Enter; wait 9000; page; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live3.txt' -Wait -PassThru
           Get-Content live3.txt
+      - name: "Live check (AAC and HE-AAC stations through Windows' decoder)"
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $s = 'play https://ice1.somafm.com/groovesalad-128-aac; wait 10000; status; play https://ice1.somafm.com/groovesalad-64-aac; wait 10000; status; quit'
+          $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live4.txt' -Wait -PassThru
+          Get-Content live4.txt
       - name: Package
         shell: pwsh
         run: |
@@ -83,6 +90,7 @@ jobs:
             live.txt
             live2.txt
             live3.txt
+            live4.txt
       - name: Release (tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
