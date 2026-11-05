@@ -9,6 +9,7 @@
 #   /plain         no metadata
 #   /list.pls      a .pls pointing at /stream.mp3
 #   /redirect      302 to /stream.mp3
+#   /mid           the stream joined in the middle of a frame (as a live station)
 #   /aac           Content-Type audio/aacp
 import socket, sys, threading, time
 
@@ -44,7 +45,7 @@ def serve(c):
         if p == '/aac':
             c.sendall(b'HTTP/1.0 200 OK\r\nContent-Type: audio/aacp\r\n\r\n' + b'\0' * 1000)
             return
-        if p not in ('/stream.mp3', '/icy', '/plain'):
+        if p not in ('/stream.mp3', '/icy', '/plain', '/mid'):
             c.sendall(b'HTTP/1.0 404 Not Found\r\n\r\n')
             return
         meta = want_meta and p != '/plain'
@@ -52,7 +53,8 @@ def serve(c):
         head = status + b'Content-Type: audio/mpeg\r\nicy-name: Test FM\r\nicy-br: %d\r\n' % kbps
         if meta: head += b'icy-metaint: %d\r\n' % METAINT
         c.sendall(head + b'\r\n')
-        pos, sent, t0, ti = 0, 0, time.time(), 0
+        # /mid: joins the stream in the middle of a frame, as a real station
+        pos, sent, t0, ti = (10007 if p == '/mid' else 0), 0, time.time(), 0
         burst = kbps * 125 * 4          # 4 s at once, then real time
         while True:
             chunk = data[pos:pos + METAINT]

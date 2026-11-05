@@ -25,8 +25,8 @@ python3 tests/icy_server.py $PORT "$T/Music/01 Sine.mp3" 192 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
 sleep 0.5
-printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n' \
-    $PORT $PORT $PORT $PORT > $T/cfg/Radio/Test.m3u
+printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n#EXTINF:-1,Live\r\nhttp://localhost:%d/mid\r\n' \
+    $PORT $PORT $PORT $PORT $PORT > $T/cfg/Radio/Test.m3u
 
 run() { PICOAMP_CONFIG=$T/cfg PICOAMP_MUSIC=$PWD/$T/Music timeout 60 $BIN "$1" 2>&1; }
 
@@ -47,11 +47,12 @@ check "mono 22 kHz" "$out" "rate=22050 ch=1 br=64"
 
 # the radio: ICY titles, ICY 200 OK, .pls, an AAC station
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
-out=$(run "key Enter; wait 2500; status; shot $T/radio.png 3; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 1500; status")
+out=$(run "key Enter; wait 2500; status; shot $T/radio.png 3; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 1500; status; key Down; key Enter; wait 2500; status")
 check "radio plays" "$out" "state=1 .*stream=1 buf=0.*title='Artist [A-Za-z]* - Song .*album='Local FM'"
 check "ICY 200 OK" "$out" "state=1 .*album='Old SHOUTcast'"
 check ".pls list" "$out" "state=1 .*album='Via PLS'"
 check "AAC refused" "$out" "err='AAC streams are not supported yet'"
+check "joined mid-frame" "$out" "state=1 .*stream=1 buf=0.*album='Live'"
 
 # favourites: F adds, D removes
 out=$(run "key Home; key F; key BS; key Home; key Enter; wait 100; shot $T/favs.png 3")

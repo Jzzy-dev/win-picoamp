@@ -258,24 +258,58 @@ static bool open_track(int i)
     return true;
 }
 
+// a stream for the decoder: it can go forward, and back within its first
+// 64 KB (the decoder looks for an ID3 tag at the start and goes back if
+// there is none)
+static unsigned char s_hist[65536];
+static size_t        s_hist_len, s_pos;
+
+static size_t s_take(void *buf, size_t n)
+{
+    if (s_pos < s_hist_len)
+    {
+        size_t k = s_hist_len - s_pos < n ? s_hist_len - s_pos : n;
+        memcpy(buf, s_hist + s_pos, k);
+        s_pos += k;
+        return k;
+    }
+    size_t k = strm ? stream_read(strm, buf, n, &dec_abort) : 0;
+    if (s_hist_len == s_pos && s_hist_len < sizeof s_hist)
+    {
+        size_t keep = sizeof s_hist - s_hist_len < k ? sizeof s_hist - s_hist_len : k;
+        memcpy(s_hist + s_hist_len, buf, keep);
+        s_hist_len += keep;
+    }
+    s_pos += k;
+    return k;
+}
+
 static ma_result s_read(ma_decoder *d, void *buf, size_t n, size_t *got)
 {
     (void)d;
-    *got = strm ? stream_read(strm, buf, n, &dec_abort) : 0;
+    *got = s_take(buf, n);
     return *got ? MA_SUCCESS : MA_AT_END;
 }
 
-// a stream can only go forward (the decoder skips an ID3 tag this way)
 static ma_result s_seek(ma_decoder *d, ma_int64 off, ma_seek_origin o)
 {
     (void)d;
-    if (o != ma_seek_origin_current || off < 0) return MA_NOT_IMPLEMENTED;
-    unsigned char junk[4096];
-    while (off > 0 && strm)
+    ma_int64 target;
+    if (o == ma_seek_origin_start) target = off;
+    else if (o == ma_seek_origin_current) target = (ma_int64)s_pos + off;
+    else return MA_NOT_IMPLEMENTED;                 // the end of a live stream
+    if (target < 0) return MA_INVALID_ARGS;
+    if ((size_t)target <= s_hist_len || (size_t)target <= s_pos)
     {
-        size_t k = stream_read(strm, junk, off < (ma_int64)sizeof junk ? (size_t)off : sizeof junk, &dec_abort);
-        if (!k) return MA_AT_END;
-        off -= (ma_int64)k;
+        if ((size_t)target > s_hist_len) return MA_NOT_IMPLEMENTED;   // behind, and no longer kept
+        s_pos = (size_t)target;
+        return MA_SUCCESS;
+    }
+    unsigned char junk[4096];
+    while ((ma_int64)s_pos < target)
+    {
+        ma_int64 left = target - (ma_int64)s_pos;
+        if (!s_take(junk, left < (ma_int64)sizeof junk ? (size_t)left : sizeof junk)) return MA_AT_END;
     }
     return MA_SUCCESS;
 }
@@ -288,6 +322,7 @@ static void open_url(const char *url, const char *name)
     base_frames = 0;
     strm = stream_start(url);
     strm_meta_seen = 0;
+    s_hist_len = s_pos = 0;
     src = SRC_STREAM;
     out_paused = false;
     sys_lock(st_lock);
