@@ -46,6 +46,7 @@ void audio_seek_to(int seconds);
 void audio_set_volume(int v);
 void audio_set_mute(bool m);
 void audio_set_balance(int b);       // 0 left .. 50 centre .. 100 right
+void audio_set_fade(int permille);   // the sleep timer and the alarm: 0..1000 of the volume
 void audio_set_mode(int mode);
 void audio_set_eq(const int8_t gains[EQ_BANDS]);
 

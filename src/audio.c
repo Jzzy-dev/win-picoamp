@@ -53,6 +53,7 @@ static volatile bool     out_paused;
 static volatile uint64_t played;          // device frames since the last flush
 static volatile int      gain_l = 32768, gain_r = 32768;
 static int               balance = 50;
+static int               fade = 1000;
 
 // the status
 static sys_mutex   *st_lock;
@@ -119,7 +120,7 @@ static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
 static void apply_gain(void)
 {
     // as the engine: (100 - volume) / 2 dB down
-    int g = (muted || volume <= 0) ? 0 : (int)(32768.0 * pow(10.0, -(100 - volume) / 40.0));
+    int g = (muted || volume <= 0) ? 0 : (int)(32768.0 * pow(10.0, -(100 - volume) / 40.0) * fade / 1000.0);
     // the balance takes the other side down (centre: both full)
     gain_l = balance <= 50 ? g : g * (100 - balance) / 50;
     gain_r = balance >= 50 ? g : g * balance / 50;
@@ -731,6 +732,12 @@ void audio_set_mute(bool m)
     st.muted = m;
     st_changed();
     sys_unlock(st_lock);
+}
+
+void audio_set_fade(int permille)
+{
+    fade = permille < 0 ? 0 : permille > 1000 ? 1000 : permille;
+    apply_gain();
 }
 
 void audio_set_balance(int b)

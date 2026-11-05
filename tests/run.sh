@@ -27,7 +27,8 @@ SRV=$!
 python3 tests/web_server.py $WEB http://localhost:$PORT/mid > $T/web.log 2>&1 &
 SRV2=$!
 trap 'kill $SRV $SRV2 2>/dev/null' EXIT
-export PICOAMP_RB=http://localhost:$WEB
+export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi
+export PICOAMP_METEO=http://localhost:$WEB/meteo PICOAMP_GEO=http://localhost:$WEB/geo
 sleep 0.5
 printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n#EXTINF:-1,Live\r\nhttp://localhost:%d/mid\r\n' \
     $PORT $PORT $PORT $PORT $PORT > $T/cfg/Radio/Test.m3u
@@ -91,5 +92,16 @@ check "directory: a country" "$out" "NPO Radio 1 = http"
 check "directory: more stations" "$out" "list /Internet radio/By genre/Jazz (101)"
 check "directory: search" "$out" "list /Internet radio/Search/jazz (3)"
 check "directory: HLS left out" "$out" "Smooth Jazz 24 = http"
+
+# the clock (place by IP, by name; sleep timer; alarm) and the weather
+sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
+out=$(run "key Down; key Enter; wait 1500; key C; wait 1200; page; shot $T/clock.png 3; key V; shot $T/analog.png 3; key O; key A; type 6:45w; key Enter; key L; type Sydney; key Enter; wait 600; key Down; key Enter; wait 800; page; key W; wait 300; page; shot $T/weather.png 3")
+check "clock: the place by IP" "$out" "place='Utrecht, NL' weather='8.4 C Rain'"
+check "clock: internet time" "$out" "(internet time)"
+check "clock: sleep and alarm" "$out" "Sleep 15 min  Alarm 06:45 Mo-Fr"
+check "clock: a place by name" "$out" "place='Sydney, Nova Scotia, CA'"
+check "weather: now" "$out" "weather place='Sydney, Nova Scotia, CA' now=8.4 code=61 (Rain)"
+check "weather: the days" "$out" "2026-11-08 Sun code=71 max=31 min=-62 rain=65%"
+grep -q "^alarm_time = 06:45" $T/cfg/picoamp.ini && grep -q "^alarm_days = weekdays" $T/cfg/picoamp.ini && echo "ok   alarm kept in picoamp.ini" || { echo "FAIL alarm in ini"; fail=1; }
 
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

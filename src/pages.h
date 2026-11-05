@@ -36,3 +36,4 @@ void ui_eq_next(void);                   // E
 
 // from fullscreen.c etc.
 void clock_service_tick(void);           // the sleep timer and the alarm (every frame)
+void clock_alarm_ack(void);              // a playback key: the alarm has been heard

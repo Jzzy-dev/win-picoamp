@@ -53,7 +53,7 @@ class H(http.server.BaseHTTPRequestHandler):
             clicks.append(p[10:])
             print("click", p[10:], flush=True)
             self.reply(json.dumps({"ok": True}))
-        elif p == '/ipapi/json':
+        elif p in ('/ipapi/json', '/ipapi/json/'):
             self.reply(json.dumps({"status": "success", "city": "Utrecht", "regionName": "Utrecht", "countryCode": "NL",
                                    "lat": 52.09, "lon": 5.12, "timezone": "Europe/Amsterdam"}))
         elif p == '/geo/v1/search':

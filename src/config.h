@@ -24,6 +24,20 @@ typedef struct
     bool   scanlines;
     bool   on_top;
     bool   first_run;        // there was no picoamp.ini yet
+    // [clock]
+    bool   clock_analog;
+    bool   clock_pc_time;    // the PC's zone (else the place's, from the internet)
+    int    clock_colours;    // 0 music, 1 cyan, 2 green, 3 amber, 4 red, 5 purple, 6 white
+    bool   clock_spectrum;
+    // [location]
+    bool   loc_ip;           // the internet connection's place (ip-api.com)
+    char   loc_name[160];
+    double loc_lat, loc_lon;
+    // [alarm]
+    bool   alarm_on, alarm_weekdays;
+    int    alarm_h, alarm_m;
+    char   alarm_play[2048]; // a station's URL or a file
+    char   alarm_name[256];
 } config;
 
 extern config cfg;

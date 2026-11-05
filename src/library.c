@@ -496,6 +496,14 @@ int lib_more(lib_list *l)
     return LIB_PENDING;
 }
 
+static int cmp_country(const void *a, const void *b)
+{
+    const char *x = ((const rd_item *)a)->name, *y = ((const rd_item *)b)->name;
+    if (!u_strnicmp(x, "The ", 4)) x += 4;              // "The Netherlands" with the N
+    if (!u_strnicmp(y, "The ", 4)) y += 4;
+    return u_stricmp(x, y);
+}
+
 int lib_poll(lib_list *l)
 {
     if (!rb_pending) return LIB_FAIL;
@@ -511,6 +519,7 @@ int lib_poll(lib_list *l)
         countries = malloc(sizeof *countries * (size_t)(n ? n : 1));
         memcpy(countries, it, sizeof *countries * (size_t)n);
         n_countries = n;
+        qsort(countries, (size_t)n, sizeof *countries, cmp_country);
     }
     rb_build(l, rb_place);
     return LIB_OK;

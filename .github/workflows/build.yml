@@ -45,6 +45,13 @@ jobs:
           $s = 'key Home; key Enter; key Down; key Down; key Enter; wait 8000; list; key Down; key Enter; wait 9000; status; key BS; key Down; key Down; key Down; key Enter; wait 8000; list; key /; type jazz; key Enter; wait 8000; list; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live.txt' -Wait -PassThru
           Get-Content live.txt | Select-Object -First 80
+      - name: Live check (clock, place, weather)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $s = 'key C; wait 9000; page; key L; type Amsterdam; key Enter; wait 6000; key Enter; wait 6000; page; key W; wait 500; page; quit'
+          $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live2.txt' -Wait -PassThru
+          Get-Content live2.txt
       - name: Package
         shell: pwsh
         run: |
@@ -67,6 +74,7 @@ jobs:
             radio.png
             radio.png.txt
             live.txt
+            live2.txt
       - name: Release (tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

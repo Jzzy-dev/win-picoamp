@@ -26,6 +26,10 @@ extern int gfx_w, gfx_h;                   // the picture's size now (shown 4:3)
 void gfx_set_size(int w, int h);           // 256 x 192 or 512 x 212
 
 void gfx_init(void);
+// a page may change colours of the palette (as PICOAMP does on the MSX):
+// r, g, b 0..7 (the MSX2's 9-bit colours); gfx_reset_palette puts them back
+void gfx_set_rgb(int index, int r, int g, int b);
+void gfx_reset_palette(void);
 void gfx_clear(uint8_t colour);            // the whole screen, one colour index
 void gfx_cell(int row, int col, const uint8_t pat[8], uint8_t colour);
 void gfx_cell2(int row, int col, const uint8_t pat[8], const uint8_t colours[8]);

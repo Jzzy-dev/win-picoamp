@@ -23,13 +23,22 @@ static const uint8_t palette[32] = {
     0x22,0x07, 0x71,0x07, 0x70,0x04, 0x71,0x01, 0x66,0x02, 0x23,0x02, 0x02,0x00, 0x56,0x05
 };
 
-void gfx_init(void)
+void gfx_set_rgb(int i, int r, int g, int b)
+{
+    if (i < 0 || i > 15) return;
+    r &= 7; g &= 7; b &= 7;
+    gfx_pal[i] = ((unsigned)(r * 255 / 7) << 16) | ((unsigned)(g * 255 / 7) << 8) | (unsigned)(b * 255 / 7);
+}
+
+void gfx_reset_palette(void)
 {
     for (int i = 0; i < 16; i++)
-    {
-        unsigned r = (palette[2 * i] >> 4) & 7, b = palette[2 * i] & 7, g = palette[2 * i + 1] & 7;
-        gfx_pal[i] = ((r * 255 / 7) << 16) | ((g * 255 / 7) << 8) | (b * 255 / 7);
-    }
+        gfx_set_rgb(i, (palette[2 * i] >> 4) & 7, palette[2 * i + 1] & 7, palette[2 * i] & 7);
+}
+
+void gfx_init(void)
+{
+    gfx_reset_palette();
     gfx_clear(NAVY);
 }
 

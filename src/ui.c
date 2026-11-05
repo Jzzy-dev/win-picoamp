@@ -760,6 +760,7 @@ static void set_mode(int m)
 bool ui_playback_key(int k)
 {
     if (k >= 'a' && k <= 'z') k -= 32;
+    if (k == ' ' || k == 'S' || k == 'N' || k == 'P' || (k >= K_MEDIA_PLAY && k <= K_MEDIA_PREV)) clock_alarm_ack();
     switch (k)
     {
     case ' ': case K_MEDIA_PLAY: audio_toggle_pause(); return true;
