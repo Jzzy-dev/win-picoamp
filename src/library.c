@@ -328,6 +328,27 @@ int lib_fav_del(const char *url)
     return r;
 }
 
+bool lib_fav_move(const char *url, int dir)
+{
+    fav_t f;
+    fav_load(&f);
+    bool ok = false;
+    for (int i = 0; i < f.n; i++)
+        if (!strcmp(f.url[i], url))
+        {
+            int j = i + dir;
+            if (j < 0 || j >= f.n) break;
+            char n[256], u[2048];
+            memcpy(n, f.name[i], sizeof n); memcpy(u, f.url[i], sizeof u);
+            memcpy(f.name[i], f.name[j], sizeof n); memcpy(f.url[i], f.url[j], sizeof u);
+            memcpy(f.name[j], n, sizeof n); memcpy(f.url[j], u, sizeof u);
+            ok = fav_save(&f);
+            break;
+        }
+    fav_free(&f);
+    return ok;
+}
+
 static void count_one(void *ctx, const char *name, const char *url) { (void)name; (void)url; (*(int *)ctx)++; }
 
 bool lib_import_list(const char *path, char *msg, size_t msglen)

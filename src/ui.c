@@ -646,20 +646,20 @@ static void draw_help(void)
         { A_NORM, "N / P      next/prev  , / .  -10s/+10s" },
         { A_NORM, "+ = / - M  vol/mute   H / R  shuffle/rep" },
         { A_NORM, "V          scope      E      EQ preset" },
+        { A_NORM, "G          equalizer  Z      full screen" },
+        { A_NORM, "C          clock      W      weather" },
+        { A_NORM, "T          news       / J    search" },
         { A_NORM, "F          favourite+ D, DEL favourite-" },
-        { A_NORM, "O          stations   ?      this page" },
-        { A_NORM, "Q          quit" },
-        { A_NORM, "" },
+        { A_NORM, "Ctrl+Up/Down  move a favourite" },
+        { A_NORM, "O          stations   Q      quit" },
         { COL(CYAN, NAVY), "Window: F11 or Alt+Enter full screen," },
         { COL(CYAN, NAVY), "  F2 scaling: fit / whole / stretch," },
-        { COL(CYAN, NAVY), "  F3 scan lines, F4 always on top" },
-        { COL(CYAN, NAVY), "Mouse: click to choose, again to play;" },
-        { COL(CYAN, NAVY), "  the right button goes back, the wheel" },
-        { COL(CYAN, NAVY), "  scrolls the list" },
-        { COL(CYAN, NAVY), "Drop music files on the window to play" },
-        { COL(CYAN, NAVY), "  them, an .m3u or .pls to add stations" },
-        { COL(CYAN, NAVY), "O opens the folder of the station lists:" },
-        { COL(CYAN, NAVY), "  every .m3u there is a list of its own" },
+        { COL(CYAN, NAVY), "  F3 scan lines, F4 always on top," },
+        { COL(CYAN, NAVY), "  ESC: minimise (the music plays on)" },
+        { COL(CYAN, NAVY), "Mouse: click, again to play; the right" },
+        { COL(CYAN, NAVY), "  button goes back, the wheel scrolls" },
+        { COL(CYAN, NAVY), "Drop music, .m3u/.pls or .opml files" },
+        { COL(CYAN, NAVY), "  on the window: play them, add them" },
         { A_NORM, "" },
         { A_NORM, "" },
         { COL(GREY, NAVY), "press a key" },
@@ -849,6 +849,15 @@ void ui_key(int k)
     case 'T': ui_page(PG_NEWS); return;
     case 'F': fav_add(); return;
     case 'D': case K_DEL: fav_del(); return;
+    case K_CTRL_UP: case K_CTRL_DOWN:
+        if (lib_is_favourites(list.place) && list.count && list.e[sel].type == E_STATION)
+        {
+            char url[2048];
+            u_copy(url, sizeof url, list.e[sel].target);
+            if (lib_fav_move(url, k == K_CTRL_UP ? -1 : 1)) open_place(list.place, url);
+        }
+        else ui_message("Ctrl+Up/Down moves a station in Internet radio/Favourites", true);
+        return;
     case 'O': plat_open_folder(config_radio_dir()); return;
     case '?': help_on = true; return;
     case '/': case 'J': searching = true; search_text[0] = 0; return;

@@ -71,7 +71,12 @@ sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
 out=$(run "key Home; key Down; key F; key BS; key Home; key Down; key Enter; wait 100; shot $T/favs.png 3")
 grep -q "localhost:$PORT/stream.mp3" $T/cfg/Radio/Favourites.m3u && echo "ok   F adds a favourite" || { echo "FAIL favourite add"; fail=1; }
 sed -i "s|^folder = .*|folder = radio:Favourites.m3u|" $T/cfg/picoamp.ini
-out=$(run "key Home; key Down; key D")
+printf '#EXTM3U\r\n#EXTINF:-1,One\r\nhttp://one/\r\n#EXTINF:-1,Two\r\nhttp://two/\r\n' >> $T/cfg/Radio/Favourites.m3u
+out=$(run "key End; key CtrlUp; key CtrlUp; list")
+check "favourites: move up" "$out" "6 Two = http://two/"
+grep -A1 "localhost" $T/cfg/Radio/Favourites.m3u | head -1 >/dev/null
+awk '/http/{print}' $T/cfg/Radio/Favourites.m3u | head -1 | grep -q "two" && echo "ok   favourites: order kept in the file" || { echo "FAIL favourites order"; cat $T/cfg/Radio/Favourites.m3u; fail=1; }
+out=$(run "key Home; key Down; key D; key D; key D")
 grep -q "localhost" $T/cfg/Radio/Favourites.m3u && { echo "FAIL favourite del"; fail=1; } || echo "ok   D removes it"
 
 # a dropped .m3u lands in the Radio folder

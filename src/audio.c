@@ -604,6 +604,11 @@ static int dec_main(void *arg)
                     if (!aac) { set_error(r ? "This PC cannot decode AAC" : "The stream is not AAC"); stop_all(); continue; }
                     if (!open_converter_for((ma_uint32)r, (ma_uint32)c)) { set_error("Unknown sound format"); stop_all(); continue; }
                     strm_decoding = true;
+                    sys_lock(st_lock);
+                    st.rate = r;
+                    st.channels = c;
+                    st_changed();
+                    sys_unlock(st_lock);
                     continue;
                 }
                 ma_decoder_config dc = ma_decoder_config_init(ma_format_s16, 0, 0);

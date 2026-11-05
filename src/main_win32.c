@@ -315,8 +315,8 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_KEYDOWN:
         switch (wp)
         {
-        case VK_UP: ui_key(K_UP); return 0;
-        case VK_DOWN: ui_key(K_DOWN); return 0;
+        case VK_UP: ui_key(GetKeyState(VK_CONTROL) < 0 ? K_CTRL_UP : K_UP); return 0;
+        case VK_DOWN: ui_key(GetKeyState(VK_CONTROL) < 0 ? K_CTRL_DOWN : K_DOWN); return 0;
         case VK_LEFT: ui_key(K_LEFT); return 0;
         case VK_RIGHT: ui_key(K_RIGHT); return 0;
         case VK_PRIOR: ui_key(K_PGUP); return 0;

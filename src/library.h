@@ -50,6 +50,7 @@ bool lib_is_favourites(const char *place);
 // favourites (Radio\Favourites.m3u): 1 added / removed, 0 already / not there, -1 error
 int  lib_fav_add(const char *name, const char *url);
 int  lib_fav_del(const char *url);
+bool lib_fav_move(const char *url, int dir);   // U / J in Internet radio/Favourites
 // a dropped .m3u / .pls: copied into the Radio folder; false if it has no stations
 bool lib_import_list(const char *path, char *msg, size_t msglen);
 
