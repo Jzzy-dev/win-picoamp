@@ -50,6 +50,21 @@ check "seek +10" "$out" "elapsed=1[2-3]/30"
 check "next track" "$out" "pl=2/2 .*title='A very long title"
 check "mono 22 kHz" "$out" "rate=22050 ch=1 br=64"
 
+# covers (V a third time): the tag's picture, a folder's cover.jpg, none
+mkdir -p $T/Covers/Folder $T/Covers/Bare
+ffmpeg -loglevel error -y -f lavfi -i testsrc=size=400x400:rate=1 -frames:v 1 -pix_fmt yuvj420p $T/pic.jpg
+ffmpeg -loglevel error -y -f lavfi -i "aevalsrc='$E':s=44100:d=8" -i $T/pic.jpg -map 0 -map 1 -c:a libmp3lame -b:a 128k -c:v copy \
+    -id3v2_version 3 -metadata title="Tagged" -metadata:s:v comment="Cover (front)" "$T/Covers/01 Tagged.mp3"
+ffmpeg -loglevel error -y -f lavfi -i "aevalsrc='$E':s=44100:d=8" -c:a libmp3lame -b:a 128k "$T/Covers/Folder/Tune.mp3"
+cp $T/pic.jpg $T/Covers/Folder/cover.jpg
+cp "$T/Covers/Folder/Tune.mp3" "$T/Covers/Bare/Plain.mp3"
+sed -i "s|^folder = .*|folder = $PWD/$T/Covers|; s|^view = .*|view = spectrum|" $T/cfg/picoamp.ini
+out=$(run "key End; key Enter; wait 600; key V; key V; wait 200; page; shot $T/cover.png 3; key Home; key Down; key Enter; key Down; key Enter; wait 600; page; key BS; key Home; key Down; key Down; key Enter; key Down; key Enter; wait 600; page; key V; page")
+check "cover: the tag's picture" "$out" "^page 0 cover=ready"
+check "cover: none (no picture)" "$(printf '%s\n' "$out" | sed -n 3p)" "^page 0 cover=none"
+check "cover: a folder's cover.jpg" "$(printf '%s\n' "$out" | sed -n 4p)" "^page 0 cover=ready"
+check "cover: V goes on to the spectrum" "$(printf '%s\n' "$out" | sed -n 5p)" "^page 0\$"
+
 # the radio: ICY titles, ICY 200 OK, .pls, an AAC station
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
 out=$(run "key Down; key Enter; wait 2500; status; shot $T/radio.png 3; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 1500; status; key Down; key Enter; wait 2500; status")

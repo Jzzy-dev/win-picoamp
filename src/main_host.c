@@ -12,6 +12,7 @@
 #include "net.h"
 #include "script.h"
 #include "sys.h"
+#include "cover.h"
 
 void plat_open_folder(const char *path) { printf("open folder: %s\n", path); }
 void plat_quit(void) {}
@@ -36,3 +37,6 @@ int main(int argc, char **argv)
     audio_shutdown();
     return 0;
 }
+
+// covers: no decoder of its own here (TJpgDec does the JPEGs)
+bool plat_decode_image(const uint8_t *data, size_t len) { (void)data; (void)len; return false; }

@@ -29,6 +29,13 @@ and the window can be any size.
   * Lists load in the background, 60 stations at a time, with "More stations...".
   * `/` or `J` searches it by name.
 * **The picture:** a 24-band spectrum analyser with falling peaks, VU meters and an oscilloscope (V).
+* **The cover (V a third time),** as PICOAMP on the MSX shows it: 80×80 pixels in MSX SCREEN 4 cells
+  (two colours in every 8 pixels of a row) with five palette entries of its own, 12 bars beside it.
+  * It comes from the track's tag (MP3's ID3 picture, the front cover first; FLAC's picture), else from
+    an image in its folder: `cover`, `folder`, `front`, `album`, `albumart` or `AlbumArtSmall`, as
+    `.jpg`, `.jpeg` or `.png`. A station has none yet.
+  * JPEGs go through the same decoder as on the MSX (TJpgDec); PNG and the rest through Windows's own.
+  * The conversion is the MSX engine's own file (`src/pva_cover.c`), so it looks the same.
   * **G** opens the equalizer: five sliders (60 Hz to 12 kHz, ±12 dB) and the balance. Use the keys or
     drag the knobs with the mouse.
   * **E** steps through the presets.
@@ -73,7 +80,7 @@ and the window can be any size.
 | Space | Pause / play | S | Stop |
 | N / P | Next / previous track | , / . | 10 s back / forward |
 | + = / - | Volume | M | Mute |
-| H / R | Shuffle / repeat | V | Spectrum / oscilloscope |
+| H / R | Shuffle / repeat | V | Spectrum / oscilloscope / cover |
 | G | Equalizer | E | Next equalizer preset |
 | Z | Full screen pictures | / or J | Search the station directory |
 | C / W / T | Clock / weather / news | ? or F1 | Help (also the **?** box in the title bar) |
@@ -145,6 +152,7 @@ The result is a single `build/PicoAmp.exe` (about 1.4 MB) that needs nothing els
 | `src/stream.c`, `net.c` | Internet radio: HTTP over sockets (also for `ICY 200 OK`), HTTPS through WinHTTP |
 | `src/radiodir.c`, `wxsvc.c`, `newsfeed.c` | Radio Browser; place, zone and weather; feeds and articles (after the engine) |
 | `src/library.c`, `config.c` | The list (folders, station lists, the directory, favourites) and the settings |
+| `src/cover.c`, `pva_cover.c`, `third_party/tjpgd` | The cover view: the picture found and decoded; `pva_cover.c` is the MSX engine's own conversion to SCREEN 4 cells |
 | `src/main_win32.c` | The window, scaling, keys, mouse, media keys, drag and drop |
 | `src/main_host.c`, `script.c`, `tests/` | The test build, the script runner, the stand-in servers, the checks |
 | `tools/` | Generators of the font and digits header and of the icon |
