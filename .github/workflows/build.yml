@@ -42,9 +42,9 @@ jobs:
         shell: pwsh
         run: |
           python tests/make_covers.py covertest
-          New-Item -ItemType Directory -Force covercfg | Out-Null
-          Set-Content covercfg/picoamp.ini "folder = $pwd\covertest\Png`r`nview = cover`r`n"
-          $env:PICOAMP_CONFIG = "$pwd\covercfg"
+          $cfg = "$env:APPDATA\PicoAmp"
+          New-Item -ItemType Directory -Force $cfg | Out-Null
+          Set-Content "$cfg\picoamp.ini" "folder = $pwd\covertest\Png`r`nview = cover`r`n"
           $s = 'key Down; key Enter; wait 1500; page; shot cover_png.png 3; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','cover.txt' -Wait -PassThru
           Get-Content cover.txt
