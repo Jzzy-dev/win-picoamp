@@ -59,8 +59,8 @@ void rd_urlenc(char *out, size_t size, const char *s)
 }
 
 // where the directory is: PICOAMP_RB (the tests) or its servers
-static int base_count(void) { return getenv("PICOAMP_RB") ? 1 : (int)N_SERVERS; }
-static void base_url(int i, char *out, size_t n)
+int rd_base_count(void) { return getenv("PICOAMP_RB") ? 1 : (int)N_SERVERS; }
+void rd_base_url(int i, char *out, size_t n)
 {
     const char *e = getenv("PICOAMP_RB");
     if (e) { u_copy(out, n, e); return; }
@@ -125,10 +125,10 @@ static int run(void *arg)
     p.countries = jb->countries;
     char e[160] = "No answer from the station directory";
     bool ok = false;
-    for (int i = 0; i < base_count() && !ok && jb->gen == gen; i++)
+    for (int i = 0; i < rd_base_count() && !ok && jb->gen == gen; i++)
     {
         char url[1400], base[256];
-        base_url(i, base, sizeof base);
+        rd_base_url(i, base, sizeof base);
         snprintf(url, sizeof url, "%s%s", base, jb->path);
         int st;
         char ne[160];
@@ -228,10 +228,10 @@ void rd_cancel(void)
 static int click_run(void *arg)
 {
     char *uuid = arg;
-    for (int i = 0; i < base_count(); i++)
+    for (int i = 0; i < rd_base_count(); i++)
     {
         char base[256], url[512];
-        base_url(i, base, sizeof base);
+        rd_base_url(i, base, sizeof base);
         snprintf(url, sizeof url, "%s/json/url/%s", base, uuid);
         int st;
         char e[100];

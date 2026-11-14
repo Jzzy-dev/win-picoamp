@@ -15,6 +15,7 @@
 #include <string.h>
 #include "ui.h"
 #include "cover.h"
+#include "logo.h"
 #include "pva_cover.h"
 #include "gfx.h"
 #include "audio.h"
@@ -494,9 +495,42 @@ static void freq_label(int bar) { freq_label_at(bar, bar + 1); }
 static char     cover_for[2048];        // the track the cover was asked for
 static bool     cover_asked;
 
+// a station's directory id, when the list shows it (its address and name; else its address)
+static const char *station_uuid(const char *url, const char *name)
+{
+    const char *u = NULL;
+    for (int i = 0; i < list.count; i++)
+        if (list.e[i].type == E_STATION && list.e[i].uuid[0] && !strcmp(list.e[i].target, url))
+        {
+            if (!strcmp(list.e[i].name, name)) return list.e[i].uuid;
+            if (!u) u = list.e[i].uuid;
+        }
+    return u;
+}
+
 static void cover_follow(void)
 {
-    if (st.stream || (st.state == ST_STOPPED && !st.url[0])) { cover_none(); cover_asked = false; cover_for[0] = 0; return; }
+    if (st.stream)
+    {
+        // a station: its logo (asked for once a station start)
+        if (!cover_asked || strcmp(cover_for, st.url))
+        {
+            u_copy(cover_for, sizeof cover_for, st.url);
+            cover_asked = true;
+            cover_none();
+            logo_station(st.url, station_uuid(st.url, st.album), st.album);
+        }
+        uint8_t *d;
+        size_t n;
+        if (logo_take(&d, &n))
+        {
+            if (d) cover_from_bytes(d, n);
+            else cover_none();
+            free(d);
+        }
+        return;
+    }
+    if (st.state == ST_STOPPED && !st.url[0]) { cover_none(); cover_asked = false; cover_for[0] = 0; return; }
     if (cover_asked && !strcmp(cover_for, st.url)) return;
     u_copy(cover_for, sizeof cover_for, st.url);
     cover_asked = true;

@@ -24,7 +24,8 @@ PORT=18765
 WEB=18766
 python3 tests/icy_server.py $PORT "$T/Music/01 Sine.mp3" 192 &
 SRV=$!
-python3 tests/web_server.py $WEB http://localhost:$PORT/mid > $T/web.log 2>&1 &
+ffmpeg -loglevel error -y -f lavfi -i "testsrc=size=160x160:rate=1" -frames:v 1 -pix_fmt yuvj420p $T/logo.jpg
+python3 tests/web_server.py $WEB http://localhost:$PORT/mid $T/logo.jpg > $T/web.log 2>&1 &
 SRV2=$!
 trap 'kill $SRV $SRV2 2>/dev/null' EXIT
 export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi
@@ -120,6 +121,23 @@ check "directory: a country" "$out" "NPO Radio 1 = http"
 check "directory: more stations" "$out" "list /Internet radio/By genre/Jazz (101)"
 check "directory: search" "$out" "list /Internet radio/Search/jazz (3)"
 check "directory: HLS left out" "$out" "Smooth Jazz 24 = http"
+
+# a station's logo as its cover: asked for by its directory id, kept in Logos; a station without one
+sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini
+out=$(run "key Home; key Down; key Down; key Enter; wait 400; key Down; key Down; key Enter; wait 1500; key V; key V; wait 1500; page; shot $T/logo.png 3; key V")
+check "logo: the directory's station" "$out" "^page 0 cover=ready"
+ls $T/cfg/Logos/*.img > /dev/null 2>&1 && echo "ok   logo: kept" || { echo "FAIL logo: not kept"; fail=1; }
+n=$(grep -c "byuuid uuid-1" $T/web.log)
+sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini
+out=$(run "key Home; key Down; key Down; key Enter; wait 400; key Down; key Down; key Enter; wait 1500; key V; key V; wait 300; page; key V")
+check "logo: from the cache" "$out" "^page 0 cover=ready"
+[ "$(grep -c "byuuid uuid-1" $T/web.log)" = "$n" ] && echo "ok   logo: not asked again" || { echo "FAIL logo: asked again"; fail=1; }
+sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
+out=$(run "key Down; key Enter; wait 1500; key V; key V; wait 1500; page; status")
+check "logo: a station without one" "$out" "^page 0 cover=none"
+grep -q "byurl http://localhost:$PORT/stream.mp3" $T/web.log && echo "ok   logo: asked by its address" || { echo "FAIL logo: byurl"; fail=1; }
+ls $T/cfg/Logos/*.none > /dev/null 2>&1 && echo "ok   logo: 'none' kept" || { echo "FAIL logo: none not kept"; fail=1; }
+sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini
 
 # the clock (place by IP, by name; sleep timer; alarm) and the weather
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini

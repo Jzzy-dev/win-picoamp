@@ -33,7 +33,11 @@ and the window can be any size.
   (two colours in every 8 pixels of a row) with five palette entries of its own, 12 bars beside it.
   * It comes from the track's tag (MP3's ID3 picture, the front cover first; FLAC's picture), else from
     an image in its folder: `cover`, `folder`, `front`, `album`, `albumart` or `AlbumArtSmall`, as
-    `.jpg`, `.jpeg` or `.png`. A station has none yet.
+    `.jpg`, `.jpeg` or `.png`.
+  * A station shows its logo, found as the MSX engine finds it. Radio Browser is asked for the
+    station by its directory id, else by its address, else by its exact name. The station's `favicon`
+    is fetched and kept in `%APPDATA%\PicoAmp\Logos`, and "no logo" is kept too. The next start shows it
+    at once without asking again. Delete the folder to have the logos fetched again.
   * JPEGs go through the same decoder as on the MSX (TJpgDec); PNG and the rest through Windows's own.
   * The conversion is the MSX engine's own file (`src/pva_cover.c`), so it looks the same.
   * **G** opens the equalizer: five sliders (60 Hz to 12 kHz, ±12 dB) and the balance. Use the keys or
@@ -153,6 +157,7 @@ The result is a single `build/PicoAmp.exe` (about 1.4 MB) that needs nothing els
 | `src/radiodir.c`, `wxsvc.c`, `newsfeed.c` | Radio Browser; place, zone and weather; feeds and articles (after the engine) |
 | `src/library.c`, `config.c` | The list (folders, station lists, the directory, favourites) and the settings |
 | `src/cover.c`, `pva_cover.c`, `third_party/tjpgd` | The cover view: the picture found and decoded; `pva_cover.c` is the MSX engine's own conversion to SCREEN 4 cells |
+| `src/logo.c` | A station's logo: Radio Browser's `favicon`, fetched in a thread and kept in `Logos` |
 | `src/main_win32.c` | The window, scaling, keys, mouse, media keys, drag and drop |
 | `src/main_host.c`, `script.c`, `tests/` | The test build, the script runner, the stand-in servers, the checks |
 | `tools/` | Generators of the font and digits header and of the icon |

@@ -5,10 +5,13 @@
 #   Open-Meteo                     /meteo/v1/forecast, /geo/v1/search
 #   news feeds                     /feeds/rss.xml, /feeds/atom.xml, /feeds/rdf.xml, /articles/<n>.html
 #
-#   web_server.py <port> <stream url for the stations>
+#   station logos                  /json/stations/byuuid/<uuid>, /json/stations/byurl, /logos/1.jpg
+#
+#   web_server.py <port> <stream url for the stations> [logo.jpg]
 import http.server, json, sys, urllib.parse, time, threading
 
 PORT, STREAM = int(sys.argv[1]), sys.argv[2]
+LOGO = sys.argv[3] if len(sys.argv) > 3 else None
 
 def station(i, name=None, codec='MP3', hls=0):
     return {"stationuuid": "uuid-%d" % i, "name": name or ("Station %d" % i), "url": STREAM,
@@ -49,6 +52,19 @@ class H(http.server.BaseHTTPRequestHandler):
             else:
                 v = [station(i) for i in range(5)] + [station(9, "An AAC one", "AAC")]
             self.reply(json.dumps(v))
+        elif p.startswith('/json/stations/byuuid/'):
+            u = p[22:]
+            print("byuuid", u, flush=True)
+            s = station(int(u[5:]) if u.startswith('uuid-') else 99)
+            if u == 'uuid-1':
+                s['favicon'] = 'http:\\/\\/127.0.0.1:%d\\/logos\\/1.jpg' % PORT
+            self.reply(json.dumps([s]).replace('\\\\/', '\\/'))
+        elif p == '/json/stations/byurl':
+            print("byurl", q.get('url'), flush=True)
+            self.reply('[]')
+        elif p == '/logos/1.jpg' and LOGO:
+            print("logo", flush=True)
+            self.reply(open(LOGO, 'rb').read(), 'image/jpeg')
         elif p.startswith('/json/url/'):
             clicks.append(p[10:])
             print("click", p[10:], flush=True)
