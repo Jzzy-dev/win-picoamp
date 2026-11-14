@@ -513,9 +513,11 @@ static void cover_follow(void)
     if (st.stream)
     {
         // a station: its logo (asked for once a station start)
-        if (!cover_asked || strcmp(cover_for, st.url))
+        char k[sizeof cover_for];
+        snprintf(k, sizeof k, "%s\x1f%s", st.url, st.album);     // (a station: its address and name)
+        if (!cover_asked || strcmp(cover_for, k))
         {
-            u_copy(cover_for, sizeof cover_for, st.url);
+            u_copy(cover_for, sizeof cover_for, k);
             cover_asked = true;
             cover_none();
             logo_station(st.url, station_uuid(st.url, st.album), st.album);
