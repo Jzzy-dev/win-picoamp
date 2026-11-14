@@ -66,6 +66,13 @@ jobs:
           $s = 'play https://ice1.somafm.com/groovesalad-128-aac; wait 10000; status; play https://ice1.somafm.com/groovesalad-64-aac; wait 10000; status; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live4.txt' -Wait -PassThru
           Get-Content live4.txt
+      - name: "Live check (song titles from real stations, https and http)"
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $s = 'play https://stream.radioparadise.com/mp3-128; wait 15000; status; shot rp.png 3; play http://stream.radioparadise.com/mp3-128; wait 15000; status; play https://icecast.omroep.nl/radio2-bb-mp3; wait 15000; status; play https://icecast.omroep.nl/radio2-bb-aac; wait 15000; status; quit'
+          $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','live5.txt' -Wait -PassThru
+          Get-Content live5.txt
       - name: Package
         shell: pwsh
         run: |
@@ -124,6 +131,8 @@ jobs:
             live2.txt
             live3.txt
             live4.txt
+            live5.txt
+            rp.png
       - name: Release (tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
