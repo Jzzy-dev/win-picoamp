@@ -38,12 +38,18 @@ and the window can be any size.
     station by its directory id, else by its address, else by its exact name. The station's `favicon`
     is fetched and kept in `%APPDATA%\PicoAmp\Logos`, and "no logo" is kept too. The next start shows it
     at once without asking again. Delete the folder to have the logos fetched again.
+  * The song that plays on a station ("Artist - Title"), and a file without a picture (by its tags:
+    artist and album, else artist and title), get their cover from the iTunes search, kept in
+    `%APPDATA%\PicoAmp\Covers`. A song's cover shows over the station's logo; a song without one shows
+    the logo again.
+  * When nothing has a cover, one of three default pictures shows (Copacabana, New York, Amsterdam), a
+    new one at random for each track or station. More: put JPEG or PNG files in `%APPDATA%\PicoAmp\Defaults`.
   * JPEGs go through the same decoder as on the MSX (TJpgDec); PNG and the rest through Windows's own.
   * The conversion is the MSX engine's own file (`src/pva_cover.c`), so it looks the same.
   * **G** opens the equalizer: five sliders (60 Hz to 12 kHz, ±12 dB) and the balance. Use the keys or
     drag the knobs with the mouse.
   * **E** steps through the presets.
-  * **Z** shows the full-screen pictures: Bars, Mirror and Plasma.
+  * **Z** shows the full-screen pictures: Bars, Mirror, Plasma and Cover (the cover twice as big).
   * The analyser and equalizer are the PicoVerse Audio Engine's own code, so the bars move as on the MSX.
 * **Clock (C):** digital or analog.
   * Shows the date, the place and the weather now.

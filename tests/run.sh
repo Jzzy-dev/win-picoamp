@@ -28,7 +28,7 @@ ffmpeg -loglevel error -y -f lavfi -i "testsrc=size=160x160:rate=1" -frames:v 1 
 python3 tests/web_server.py $WEB http://localhost:$PORT/mid $T/logo.jpg > $T/web.log 2>&1 &
 SRV2=$!
 trap 'kill $SRV $SRV2 2>/dev/null' EXIT
-export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi
+export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi PICOAMP_ITUNES=http://localhost:$WEB/itunes
 export PICOAMP_METEO=http://localhost:$WEB/meteo PICOAMP_GEO=http://localhost:$WEB/geo
 sleep 0.5
 printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n#EXTINF:-1,Live\r\nhttp://localhost:%d/mid\r\n' \
@@ -62,7 +62,7 @@ cp "$T/Covers/Folder/Tune.mp3" "$T/Covers/Bare/Plain.mp3"
 sed -i "s|^folder = .*|folder = $PWD/$T/Covers|; s|^view = .*|view = spectrum|" $T/cfg/picoamp.ini
 out=$(run "key End; key Enter; wait 600; key V; key V; wait 200; page; shot $T/cover.png 3; key Home; key Down; key Enter; key Down; key Enter; wait 600; page; key BS; key Home; key Down; key Down; key Enter; key Down; key Enter; wait 600; page; key V; page")
 check "cover: the tag's picture" "$out" "^page 0 cover=ready"
-check "cover: none (no picture)" "$(printf '%s\n' "$out" | sed -n 3p)" "^page 0 cover=none"
+check "cover: no picture: a default one" "$(printf '%s\n' "$out" | sed -n 3p)" "^page 0 cover=ready"
 check "cover: a folder's cover.jpg" "$(printf '%s\n' "$out" | sed -n 4p)" "^page 0 cover=ready"
 check "cover: V goes on to the spectrum" "$(printf '%s\n' "$out" | sed -n 5p)" "^page 0\$"
 
@@ -89,6 +89,8 @@ out=$(run "key G; key Right; key Up; key Up; key Up; key Left; key Left; key Up;
 grep -q "^eq = 0,3,0,0,0" $T/cfg/picoamp.ini && echo "ok   equalizer: band 250 Hz +3" || { echo "FAIL equalizer"; grep "^eq" $T/cfg/picoamp.ini; fail=1; }
 grep -q "^balance = 55" $T/cfg/picoamp.ini && echo "ok   balance" || { echo "FAIL balance"; grep "^balance" $T/cfg/picoamp.ini; fail=1; }
 sed -i "s|^eq = .*|eq = 0,0,0,0,0|; s|^balance = .*|balance = 50|" $T/cfg/picoamp.ini
+out=$(run "key End; key Enter; wait 800; key Z; key Left; wait 300; shot $T/fullcover.png 3; key Z")
+check "full screen: the cover" "$out" "shot $T/fullcover.png: ok"
 
 # favourites: F adds, D removes
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
@@ -134,7 +136,10 @@ check "logo: from the cache" "$out" "^page 0 cover=ready"
 [ "$(grep -c "byuuid uuid-1" $T/web.log)" = "$n" ] && echo "ok   logo: not asked again" || { echo "FAIL logo: asked again"; fail=1; }
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
 out=$(run "key Down; key Enter; wait 1500; key V; key V; wait 1500; page; status")
-check "logo: a station without one" "$out" "^page 0 cover=none"
+check "logo: a station without one: a default picture" "$out" "^page 0 cover=ready"
+grep -q "itunes Artist" $T/web.log && echo "ok   song: its cover asked for (iTunes)" || { echo "FAIL song: iTunes not asked"; fail=1; }
+ls $T/cfg/Covers/*.img > /dev/null 2>&1 && echo "ok   song: a cover found and kept" || { echo "FAIL song: no cover kept"; ls $T/cfg/Covers; fail=1; }
+ls $T/cfg/Covers/*.none > /dev/null 2>&1 && echo "ok   song: 'none' kept for a song without one" || { echo "FAIL song: none not kept"; fail=1; }
 grep -q "byurl http://localhost:$PORT/stream.mp3" $T/web.log && echo "ok   logo: asked by its address" || { echo "FAIL logo: byurl"; fail=1; }
 ls $T/cfg/Logos/*.none > /dev/null 2>&1 && echo "ok   logo: 'none' kept" || { echo "FAIL logo: none not kept"; fail=1; }
 sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini

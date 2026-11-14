@@ -65,6 +65,17 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == '/logos/1.jpg' and LOGO:
             print("logo", flush=True)
             self.reply(open(LOGO, 'rb').read(), 'image/jpeg')
+        elif p == '/itunes/search':
+            t = q.get('term', '')
+            print("itunes", t, flush=True)
+            if t.startswith('Artist One') or t.startswith('Unit Tester'):
+                self.reply(json.dumps({"resultCount": 1, "results": [{"artistName": "x",
+                           "artworkUrl100": "http://127.0.0.1:%d/art/100x100bb.jpg" % PORT}]}))
+            else:
+                self.reply('{"resultCount":0,"results":[]}')
+        elif p.startswith('/art/') and LOGO:
+            print("art", p, flush=True)
+            self.reply(open(LOGO, 'rb').read(), 'image/jpeg')
         elif p.startswith('/json/url/'):
             clicks.append(p[10:])
             print("click", p[10:], flush=True)

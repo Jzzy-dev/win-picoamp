@@ -508,36 +508,119 @@ static const char *station_uuid(const char *url, const char *name)
     return u;
 }
 
+// the default pictures: three built in, and any JPEG or PNG in <config>/Defaults; a new one at
+// random for each track or station (as the MSX)
+static unsigned dflt_pick, dflt_rng = 0x2545F491u;
+static void show_default(void)
+{
+    char d[1024];
+    u_join(d, sizeof d, sys_config_dir(), "Defaults");
+    sys_dirent *e = NULL;
+    int n = 0, m = 0;
+    if (sys_list_dir(d, &e, &n))
+        for (int i = 0; i < n; i++)
+        {
+            const char *x = strrchr(e[i].name, '.');
+            if (!e[i].is_dir && x && (!u_stricmp(x, ".jpg") || !u_stricmp(x, ".jpeg") || !u_stricmp(x, ".png"))) e[m++] = e[i];
+            else free(e[i].name);
+        }
+    unsigned k = dflt_pick % (unsigned)(DEFAULT_PICTURES + m);
+    if (k < DEFAULT_PICTURES) cover_from_bytes(default_picture[k], default_picture_len[k]);
+    else
+    {
+        char f[2048];
+        size_t len = 0;
+        u_join(f, sizeof f, d, e[k - DEFAULT_PICTURES].name);
+        char *b = sys_read_file(f, &len);
+        if (b) cover_from_bytes((const uint8_t *)b, len);
+        else cover_none();
+        free(b);
+    }
+    if (e) sys_free_dir(e, m);
+}
+
+static char     song_for[1100];         // the song (or album) asked for
+static bool     song_shown;             // a song's cover shows (a station)
+static uint8_t *logo_img;               // the station's logo (shown again when a song has none)
+static size_t   logo_len;
+
+static void new_item(void)
+{
+    dflt_rng = dflt_rng * 1103515245u + 12345u + (unsigned)sys_unix_time();
+    dflt_pick = dflt_rng >> 16;
+    song_for[0] = 0;
+    song_shown = false;
+    free(logo_img);
+    logo_img = NULL;
+    logo_cancel(LOGO_STATION);
+    logo_cancel(LOGO_SONG);
+}
+
+static void ask_song(const char *artist, const char *what, bool album)
+{
+    char k[sizeof song_for];
+    snprintf(k, sizeof k, "%s\x1f%s", artist, what);
+    if (!strcmp(k, song_for)) return;
+    u_copy(song_for, sizeof song_for, k);
+    if (artist[0] && what[0]) logo_song(artist, what, album);
+    else
+    {
+        logo_cancel(LOGO_SONG);
+        if (song_shown) { song_shown = false; if (logo_img) cover_from_bytes(logo_img, logo_len); else show_default(); }
+    }
+}
+
 static void cover_follow(void)
 {
+    uint8_t *d;
+    size_t n;
     if (st.stream)
     {
-        // a station: its logo (asked for once a station start)
+        // a station: a default picture, its logo, the song's cover over it
         char k[sizeof cover_for];
         snprintf(k, sizeof k, "%s\x1f%s", st.url, st.album);     // (a station: its address and name)
         if (!cover_asked || strcmp(cover_for, k))
         {
             u_copy(cover_for, sizeof cover_for, k);
             cover_asked = true;
-            cover_none();
+            new_item();
+            show_default();
             logo_station(st.url, station_uuid(st.url, st.album), st.album);
         }
-        uint8_t *d;
-        size_t n;
-        if (logo_take(&d, &n))
+        ask_song(st.artist, st.title, false);
+        if (logo_take(LOGO_STATION, &d, &n))
         {
-            if (d) cover_from_bytes(d, n);
-            else cover_none();
-            free(d);
+            if (d) { free(logo_img); logo_img = d; logo_len = n; if (!song_shown) cover_from_bytes(d, n); }
+        }
+        if (logo_take(LOGO_SONG, &d, &n))
+        {
+            if (d) { cover_from_bytes(d, n); song_shown = true; free(d); }
+            else if (song_shown) { song_shown = false; if (logo_img) cover_from_bytes(logo_img, logo_len); else show_default(); }
         }
         return;
     }
-    if (st.state == ST_STOPPED && !st.url[0]) { cover_none(); cover_asked = false; cover_for[0] = 0; return; }
-    if (cover_asked && !strcmp(cover_for, st.url)) return;
-    u_copy(cover_for, sizeof cover_for, st.url);
-    cover_asked = true;
-    cover_track(st.url);
+    if (st.state == ST_STOPPED && !st.url[0]) { cover_none(); cover_asked = false; cover_for[0] = 0; new_item(); return; }
+    if (!cover_asked || strcmp(cover_for, st.url))
+    {
+        // a file: its own picture, else its cover online (by the album, else the title), a default meanwhile
+        u_copy(cover_for, sizeof cover_for, st.url);
+        cover_asked = true;
+        new_item();
+        cover_track(st.url);
+        if (cover_state() == COVER_NONE)
+        {
+            show_default();
+            ask_song(st.artist, st.album[0] ? st.album : st.title, st.album[0] != 0);
+        }
+    }
+    if (logo_take(LOGO_SONG, &d, &n))
+    {
+        if (d) cover_from_bytes(d, n);
+        free(d);
+    }
 }
+
+void ui_cover_follow(void) { cover_follow(); }
 
 static void draw_cover(void)
 {
