@@ -53,9 +53,17 @@ check "mono 22 kHz" "$out" "rate=22050 ch=1 br=64"
 # the radio: ICY titles, ICY 200 OK, .pls, an AAC station
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
 out=$(run "key Down; key Enter; wait 2500; status; shot $T/radio.png 3; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 2500; status; key Down; key Enter; wait 1500; status; key Down; key Enter; wait 2500; status")
-check "radio plays" "$out" "state=1 .*stream=1 buf=0.*title='Artist [A-Za-z]* - Song .*album='Local FM'"
+check "radio plays" "$out" "state=1 .*stream=1 buf=0.*title='Song [A-Za-z]* .* artist='Artist [A-Za-z]*' .*album='Local FM'"
 check "ICY 200 OK" "$out" "state=1 .*album='Old SHOUTcast'"
 check ".pls list" "$out" "state=1 .*album='Via PLS'"
+
+# the help (? in the title bar, F1, ?) and the wheel on the volume
+hw=$(run "click 244 4; page; key x; page; key F1; page; key F1; page; key ?; page; key Esc; status; click 200 188 wheelup; click 230 188 wheelup; status; click 170 188 wheeldown; status; list; click 100 170 wheeldown; list; quit")
+check "help: the ? in the title bar" "$hw" "^page 0 help"
+check "help: F1 opens and closes it" "$(printf '%s\n' "$hw" | sed -n 2,4p | tr '\n' ' ')" "page 0 page 0 help page 0 "
+check "the wheel on VOL: louder" "$hw" "vol=90"
+check "the wheel on VOL: softer" "$hw" "vol=85"
+check "the wheel on the list: scrolls" "$hw" " >6 Local FM"
 check "AAC refused" "$out" "err='AAC streams are not supported yet'"
 check "joined mid-frame" "$out" "state=1 .*stream=1 buf=0.*album='Live'"
 

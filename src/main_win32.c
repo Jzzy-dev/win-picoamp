@@ -325,6 +325,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         case VK_END: ui_key(K_END); return 0;
         case VK_DELETE: ui_key(K_DEL); return 0;
         case VK_F11: set_fullscreen(!cfg.fullscreen); return 0;
+        case VK_F1: ui_key(K_F1); return 0;
         case VK_F2:
             cfg.scale = (cfg.scale + 1) % 3;
             ui_message(scale_name(cfg.scale), false);
@@ -385,8 +386,12 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     {
         static int acc;
         acc += GET_WHEEL_DELTA_WPARAM(wp);
-        while (acc >= WHEEL_DELTA) { ui_mouse(0, 0, MOUSE_WHEEL_UP); acc -= WHEEL_DELTA; }
-        while (acc <= -WHEEL_DELTA) { ui_mouse(0, 0, MOUSE_WHEEL_DOWN); acc += WHEEL_DELTA; }
+        // where the pointer is (the wheel on the volume sets it): the window's own coordinates
+        POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+        ScreenToClient(hwnd, &pt);
+        LPARAM at = MAKELPARAM((WORD)(SHORT)pt.x, (WORD)(SHORT)pt.y);
+        while (acc >= WHEEL_DELTA) { mouse(at, MOUSE_WHEEL_UP); acc -= WHEEL_DELTA; }
+        while (acc <= -WHEEL_DELTA) { mouse(at, MOUSE_WHEEL_DOWN); acc += WHEEL_DELTA; }
         return 0;
     }
     case WM_DROPFILES:

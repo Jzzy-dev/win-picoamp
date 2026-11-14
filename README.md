@@ -21,7 +21,8 @@ and the window can be any size.
   ID3 tags. The folder is the playlist, with next, previous, shuffle, repeat and ±10 s.
 * **Internet radio:** MP3, AAC and HE-AAC (AAC+) streams over HTTP and HTTPS. AAC is decoded by
   Windows itself (Media Foundation) and TLS uses Windows' own certificates.
-  * Song titles come from the stream (ICY); `.pls` and `.m3u` links and redirects are followed.
+  * Song titles come from the stream (ICY), the song and the artist apart as on the MSX; `.pls` and `.m3u`
+    links and redirects are followed.
   * Ogg and HLS streams are not supported; PicoAmp says so.
 * **The station directory:** Internet radio has Top stations, Most voted, Trending now, By country,
   By genre and By decade, from the free [Radio Browser](https://www.radio-browser.info) directory.
@@ -75,7 +76,7 @@ and the window can be any size.
 | H / R | Shuffle / repeat | V | Spectrum / oscilloscope |
 | G | Equalizer | E | Next equalizer preset |
 | Z | Full screen pictures | / or J | Search the station directory |
-| C / W / T | Clock / weather / news | ? | Help |
+| C / W / T | Clock / weather / news | ? or F1 | Help (also the **?** box in the title bar) |
 | F / D | Favourite add / remove | Ctrl+Up/Down | Move a favourite |
 | O | Open the station lists' folder | Q | Quit |
 | F11, Alt+Enter | Full screen | F2 / F3 / F4 | Scaling / scan lines / always on top |
@@ -89,7 +90,8 @@ The playback keys work on every page.
 
 **Mouse:**
 * Click an entry to choose it and click it again to play it. The right button goes back and the wheel
-  scrolls.
+  scrolls. Over **VOL** and its bar the wheel sets the volume.
+* The **?** box in the title bar opens the help page.
 * The control row, SHF/REP/EQ, the volume cells, the seek bar and the SPECTRUM label can be clicked.
 * The equalizer's knobs can be dragged.
 

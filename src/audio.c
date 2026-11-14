@@ -564,6 +564,25 @@ static void push_frames(const int16_t *in, ma_uint64 frames)
     }
 }
 
+// a station's "Artist - Song": the song and the artist apart (as the engine does)
+static void split_stream_title(const char *t)
+{
+    const char *d = strstr(t, " - ");
+    if (d && d != t)
+    {
+        size_t a = (size_t)(d - t);
+        if (a >= sizeof st.artist) a = sizeof st.artist - 1;
+        memcpy(st.artist, t, a);
+        st.artist[a] = 0;
+        u_copy(st.title, sizeof st.title, d + 3);
+    }
+    else
+    {
+        u_copy(st.title, sizeof st.title, t);
+        st.artist[0] = 0;
+    }
+}
+
 static void stream_poll(void)
 {
     stream_info si;
@@ -579,7 +598,7 @@ static void stream_poll(void)
     if (si.meta_gen != strm_meta_seen)
     {
         strm_meta_seen = si.meta_gen;
-        u_copy(st.title, sizeof st.title, si.title);
+        split_stream_title(si.title);
         st_changed();
     }
     if (si.station[0] && !st.album[0]) { u_copy(st.album, sizeof st.album, si.station); st_changed(); }
