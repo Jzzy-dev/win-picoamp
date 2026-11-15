@@ -176,9 +176,10 @@ static int http_open(net_conn *c, const url_t *u, const char *extra, char *err, 
     char req[4096], hostport[300];
     if (u->port == 80) snprintf(hostport, sizeof hostport, "%s", u->host);
     else snprintf(hostport, sizeof hostport, "%s:%d", u->host, u->port);
+    bool own_ua = extra && !u_strnicmp(extra, "User-Agent:", 11);
     int n = snprintf(req, sizeof req,
-                     "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: " USER_AGENT "\r\nAccept: */*\r\n%s%sConnection: close\r\n\r\n",
-                     u->path, hostport, extra ? extra : "", extra && *extra ? "\r\n" : "");
+                     "GET %s HTTP/1.0\r\nHost: %s\r\n%sAccept: */*\r\n%s%sConnection: close\r\n\r\n",
+                     u->path, hostport, own_ua ? "" : "User-Agent: " USER_AGENT "\r\n", extra ? extra : "", extra && *extra ? "\r\n" : "");
     if (send(c->s, req, n, 0) != n) { snprintf(err, errlen, "Could not send the request"); return 0; }
     // the head, up to the empty line
     char *h = malloc(MAX_HEAD + 1);
@@ -254,7 +255,7 @@ static int winhttp_open(net_conn *c, const url_t *u, const char *extra, char *er
     if (extra && *extra)
     {
         wchar_t *we = wdup(extra);
-        WinHttpAddRequestHeaders(c->req, we, (DWORD)-1L, WINHTTP_ADDREQ_FLAG_ADD);
+        WinHttpAddRequestHeaders(c->req, we, (DWORD)-1L, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
         free(we);
     }
     if (!WinHttpSendRequest(c->req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||

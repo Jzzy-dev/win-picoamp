@@ -19,6 +19,7 @@ enum { NF_IDLE, NF_BUSY, NF_DONE, NF_FAILED };
 // a feed: in the background
 void nf_fetch(const char *url);
 int  nf_state(void);
+unsigned nf_serial(void);                           // goes up with every nf_fetch
 const char *nf_error(void);
 const char *nf_feed_title(void);
 // the stories (valid until the next nf_fetch); by_date: newest first, else the feed's order

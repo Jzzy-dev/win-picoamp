@@ -50,6 +50,7 @@ static bool   typing;               // A: a feed's address
 static char   typed[600];
 static char   pending_add[600];     // an address being tried
 static bool   adding;
+static bool   ext;                  // the headlines are the markets' (ESC or BS: back there)
 
 static void note(const char *m) { u_copy(msg, sizeof msg, m); msg_until = sys_millis() + 3500; }
 
@@ -217,6 +218,7 @@ static void open_feed(int i)
     int n = nf_favs(&f);
     if (i < 0 || i >= n) return;
     feed_no = i;
+    ext = false;
     u_copy(feed_name, sizeof feed_name, f[i].name);
     nf_fetch(f[i].url);
     sel = top = 0;
@@ -447,6 +449,24 @@ static void nw_open(void)
 
 static void nw_close(void) { gfx_set_size(GFX_W, GFX_H); typing = false; }
 
+void news_open_market(const char *name)
+{
+    if (!opened) { opened = true; nf_sort(!cfg.news_by_feed); }
+    ext = true;
+    feed_no = -2;
+    snprintf(feed_name, sizeof feed_name, "Market news: %s", name);
+    sel = top = 0;
+    view = V_LIST;
+}
+
+void news_feed_taken(void)
+{
+    if (feed_no == -1) return;
+    feed_no = -1;
+    ext = false;
+    if (view == V_LIST || view == V_STORY) view = V_FEEDS;
+}
+
 static void try_add_poll(void)
 {
     if (!adding) return;
@@ -569,8 +589,9 @@ static void nw_key(int k)
         case K_HOME: sel = 0; return;
         case K_END: sel = n - 1; return;
         case K_ENTER: open_story(sel); return;
-        case 'F': case K_BS: view = V_FEEDS; return;
-        case K_ESC: ui_page(PG_PLAYER); return;
+        case K_BS: if (ext) { ui_page(PG_MARKETS); return; } view = V_FEEDS; return;
+        case 'F': view = V_FEEDS; return;
+        case K_ESC: ui_page(ext ? PG_MARKETS : PG_PLAYER); return;
         case 'S':
             cfg.news_by_feed = !cfg.news_by_feed;
             nf_sort(!cfg.news_by_feed);

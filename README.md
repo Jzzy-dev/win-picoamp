@@ -14,6 +14,8 @@ and the window can be any size.
 | ![News](docs/news.png) | ![Story](docs/news_story.png) | ![Plasma](docs/plasma.png) |
 | **Pictures (I)** | **A picture** | **The cover big (Z)** |
 | ![Pictures](docs/pictures.png) | ![A picture](docs/picture.png) | ![The cover big](docs/fullcover.png) |
+| **Markets ($)** | **A chart: the day** | **A chart: a year** |
+| ![Markets](docs/markets.png) | ![The day](docs/markets_chart.png) | ![A year](docs/markets_year.png) |
 
 *(The screenshots come from the test build, with its test music, stations, places and feeds.)*
 
@@ -79,6 +81,23 @@ and the window can be any size.
     paragraphs of the story's web page without menus and footers.
   * My feeds sit beside a catalogue of 111 feeds in 11 topics.
   * **A** adds any feed by its address.
+* **Markets ($):** a market monitor after the [IEX Markt Monitor](https://monitor.iex.nl/), as PICOAMP v1.4
+  on the MSX has it: 80 columns in four colours (MSX2 SCREEN 6), risers green and fallers red.
+  * A list of up to 100 instruments, 40 a page in two columns: name, price, change and percent against the
+    previous close. **Left/Right** the list, **1 2 3** the region (Europe, Americas, Asia-Pacific). Each region
+    has its indices, a list of currencies, commodities and rates (with their currency: "Gold USD/oz"), and the
+    shares of two markets. My list is `list = ` in `[markets]` of `picoamp.ini` (Yahoo Finance symbols).
+  * **I** on an index shows its members (15 indices: AEX, AMX, DAX, CAC 40, FTSE 100, Euro Stoxx 50, BEL 20,
+    IBEX 35, Dow 30, Nasdaq 100, S&P 100, Bovespa, IPC Mexico, Hang Seng, Nikkei 225's 40 largest); BS back.
+    **O** orders a list by percent (risers first, fallers first), **U** updates now.
+  * Row 1 is a tape of the region's market headlines (every 15 minutes).
+  * **Enter** shows the chosen one's chart: a line with a price scale and a time scale, green above the close
+    before the range (the dashed line) and red under it. **Left/Right** the range: 1D, 5D, 1M, 6M, YTD, 1Y, 5Y,
+    all years; **Up/Down** the next one. Its four latest headlines are under it; **T** reads them in the news
+    reader, where ESC comes back.
+  * The prices come from Yahoo Finance's chart service: unofficial, no key, delayed by 15 to 20 minutes
+    for most exchanges, and it may change or stop. They are fetched only while the page shows, again every
+    minute (`refresh = `). The catalogue is the MSX engine's own (`src/markets_cat.c`).
 * **Any window size:** the picture is MSX2 SCREEN 4 (256 × 192), or 512 × 212 for the news text mode.
   * By default it is scaled to fit at 4:3 and stays sharp. It is first enlarged by whole pixels and only
     the last step is smoothed, so every MSX pixel is an even, crisp block.
@@ -108,7 +127,7 @@ and the window can be any size.
 | G | Equalizer | E | Next equalizer preset |
 | Z | Full screen pictures | / or J | Search the station directory |
 | C / W / T | Clock / weather / news | ? or F1 | Help (also the **?** box in the title bar) |
-| I | Pictures and slideshow | | |
+| I | Pictures and slideshow | $ | Markets |
 | F / D | Favourite add / remove | Ctrl+Up/Down | Move a favourite |
 | O | Open the station lists' folder | Q | Quit |
 | F11, Alt+Enter | Full screen | F2 / F3 / F4 | Scaling / scan lines / always on top |
@@ -117,6 +136,9 @@ and the window can be any size.
 X the colours, B the small spectrum, O the sleep timer, A the alarm.
 **News:** Enter reads, 1-9 open a feed, F opens My feeds, S changes the order, N/P the next or previous
 story. In My feeds: Enter, D, U/J move, and A adds an address.
+**Markets:** Up/Down choose, Left/Right the list, Enter the chart, I an index's members (BS back), O the
+order, U update now, 1 2 3 the region. In the chart: Left/Right the range, Up/Down the next one, T its
+headlines in the news reader, Enter/BS/ESC the list.
 **Equalizer:** Left/Right picks a band or the balance, Up/Down changes it, 0 resets it.
 **Pictures:** Enter shows a picture or opens a folder, Backspace the folder above (and the drives),
 Space marks, A all, G slideshow, O screensaver, R interval, U shuffle, F the screensaver's folder,
@@ -174,7 +196,8 @@ The result is a single `build/PicoAmp.exe` (about 1.4 MB) that needs nothing els
 |--------|------|
 | `src/gfx.c` | The MSX2 picture: cells, 6-pixel text, big digits, the palette (which pages may change) |
 | `src/ui.c` | The player screen, the equalizer, the keys, the pages (from `picoamp.asm`) |
-| `src/fullscreen.c`, `clock.c`, `weather.c`, `news.c` | The other pages (from `picoamp.asm`, `clock.asm`, `weather.asm`, `news.asm`) |
+| `src/fullscreen.c`, `clock.c`, `weather.c`, `news.c`, `markets.c` | The other pages (from `picoamp.asm`, `clock.asm`, `weather.asm`, `news.asm`, `markets.asm`) |
+| `src/mktsvc.c`, `markets_cat.c` | The markets' prices, charts and headline tape from Yahoo Finance in a thread; the catalogue (the MSX engine's `pva_markets_cat.c`) |
 | `src/audio.c`, `aacdec.c` | The player: decoding thread, playlist, AAC through Media Foundation, the sound device |
 | `src/viz.c`, `eq.c`, `json.c` | The PicoVerse Audio Engine's spectrum analyser, equalizer and JSON reader |
 | `src/stream.c`, `net.c` | Internet radio: HTTP over sockets (also for `ICY 200 OK`), HTTPS through WinHTTP |
