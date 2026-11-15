@@ -49,6 +49,15 @@ jobs:
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','cover.txt' -Wait -PassThru
           Get-Content cover.txt
           if (-not (Select-String -Path cover.txt -Pattern 'cover=ready' -Quiet)) { throw "no cover from the PNG" }
+      - name: "Pictures (I): PNGs through WIC in SCREEN 8; the cover big (Z)"
+        shell: pwsh
+        run: |
+          $cfg = "$env:APPDATA\PicoAmp"
+          Set-Content "$cfg\picoamp.ini" "folder = $pwd\covertest\Png`r`nview = cover`r`npictures = $pwd\docs`r`n"
+          $s = 'key I; wait 300; page; key Enter; wait 4000; page; shot picture.png 3; key x; key I; key Down; key Enter; wait 1500; key Z; key Left; wait 1500; page; shot fullcover.png 3; quit'
+          $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','pictures.txt' -Wait -PassThru
+          Get-Content pictures.txt
+          if (-not (Select-String -Path pictures.txt -Pattern 'pictures view .*have=1' -Quiet)) { throw "no picture shown" }
       - name: "Live check (the station directory, a search, a station)"
         shell: pwsh
         continue-on-error: true
@@ -138,6 +147,8 @@ jobs:
             smoke.png.txt
             radio.png
             radio.png.txt
+            picture.png
+            fullcover.png
             live.txt
             live2.txt
             live3.txt

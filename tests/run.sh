@@ -165,4 +165,30 @@ printf '%s\n' "$out" | grep -q "Footer text\|Menu Home" && { echo "FAIL news: me
 check "news: from the catalogue" "$out" "7 BBC News, top stories = https://feeds.bbci.co.uk/news/rss.xml"
 grep -q 'xmlUrl="http://localhost' $T/cfg/MyFeeds.opml && echo "ok   news: MyFeeds.opml" || { echo "FAIL MyFeeds.opml"; fail=1; }
 
+# the pictures (I): the browser (folders and pictures only), one picture, the slideshow, the settings
+mkdir -p $T/Pictures/Holiday
+ffmpeg -loglevel error -y -f lavfi -i testsrc=size=1600x1200:rate=1 -frames:v 1 -pix_fmt yuvj420p $T/Pictures/a.jpg
+ffmpeg -loglevel error -y -f lavfi -i smptebars=size=640x480:rate=1 -frames:v 1 -pix_fmt yuvj420p $T/Pictures/b.jpg
+ffmpeg -loglevel error -y -f lavfi -i testsrc=size=300x900:rate=1 -frames:v 1 -pix_fmt yuvj420p $T/Pictures/c.jpg
+cp $T/pic.jpg $T/Pictures/Holiday/d.jpg
+echo text > $T/Pictures/notes.txt
+export PICOAMP_PICTURES=$PWD/$T/Pictures
+sed -i "s|^interval = .*|interval = 5|" $T/cfg/picoamp.ini
+out=$(run "key I; wait 100; page; shot $T/pictures.png 3; key Down; key Enter; wait 1200; page; shot $T/picture.png 3; key Right; wait 1200; page; key x; key Space; key A; page; key A; key Home; key Enter; wait 200; page; key BS; key G; wait 1200; page; wait 5800; page; key x; key O; key O; key U; key I; page")
+check "pictures: folders and pictures only, sorted" "$out" "pictures browse folder='$PWD/$T/Pictures' entries=4 folders=1 pictures=3"
+check "pictures: one shows (SCREEN 8)" "$out" "pictures view .*shown=1 have=1"
+check "pictures: Right: the next one" "$out" "pictures view .*shown=2 have=1"
+check "pictures: A marks all" "$out" "pictures=3 marked=3"
+check "pictures: a folder" "$out" "pictures browse folder='$PWD/$T/Pictures/Holiday' entries=1 folders=0 pictures=1"
+check "pictures: the slideshow, then the next after its time" "$out" "pictures slideshow .*shown=1 have=1"
+check "pictures: the slideshow goes on" "$out" "pictures slideshow .*shown=[23] have=1"
+grep -q "^saver = 2" $T/cfg/picoamp.ini && grep -q "^pictures_shuffle = yes" $T/cfg/picoamp.ini && echo "ok   pictures: the screensaver's minutes and shuffle kept" || { echo "FAIL pictures settings"; grep "saver\|shuffle" $T/cfg/picoamp.ini; fail=1; }
+# the screensaver: after a minute without a key (saver = 1), any key back
+sed -i "s|^saver = .*|saver = 1|" $T/cfg/picoamp.ini
+out=$(timeout 100 env PICOAMP_CONFIG=$T/cfg PICOAMP_MUSIC=$PWD/$T/Music $BIN "wait 58000; page; wait 3000; page; shot $T/saver.png 3; key x; page; quit" 2>&1)
+check "screensaver: not yet" "$(printf '%s\n' "$out" | sed -n 1p)" "^page 0"
+check "screensaver: after a minute" "$out" "pictures screensaver .*have=1"
+check "screensaver: a key, back to the player" "$(printf '%s\n' "$out" | tail -1)" "^page 0"
+sed -i "s|^saver = .*|saver = 0|" $T/cfg/picoamp.ini
+
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

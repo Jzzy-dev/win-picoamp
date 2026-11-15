@@ -196,6 +196,23 @@ const char *sys_music_dir(void)
     return dir;
 }
 
+const char *sys_pictures_dir(void)
+{
+    static char dir[1024];
+    if (!dir[0])
+    {
+        wchar_t *p = NULL;
+        if (SHGetKnownFolderPath(&FOLDERID_Pictures, 0, NULL, &p) == S_OK)
+        {
+            char *s = narrow(p);
+            snprintf(dir, sizeof dir, "%s", s);
+            free(s);
+        }
+        if (p) CoTaskMemFree(p);
+    }
+    return dir;
+}
+
 int sys_drives(char letters[26])
 {
     DWORD m = GetLogicalDrives();
@@ -321,6 +338,18 @@ const char *sys_music_dir(void)
         const char *e = getenv("PICOAMP_MUSIC");
         if (e) snprintf(dir, sizeof dir, "%s", e);
         else snprintf(dir, sizeof dir, "%s/Music", getenv("HOME") ? getenv("HOME") : ".");
+    }
+    return dir;
+}
+
+const char *sys_pictures_dir(void)
+{
+    static char dir[1024];
+    if (!dir[0])
+    {
+        const char *e = getenv("PICOAMP_PICTURES");
+        if (e) snprintf(dir, sizeof dir, "%s", e);
+        else snprintf(dir, sizeof dir, "%s/Pictures", getenv("HOME") ? getenv("HOME") : ".");
     }
     return dir;
 }

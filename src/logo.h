@@ -20,3 +20,6 @@ bool logo_take(int which, uint8_t **data, size_t *len);
 #define DEFAULT_PICTURES 3
 extern const uint8_t *const default_picture[DEFAULT_PICTURES];
 extern const unsigned default_picture_len[DEFAULT_PICTURES];
+// the same whole and bigger (282 x 159), for the full screen cover
+extern const uint8_t *const default_picture_big[DEFAULT_PICTURES];
+extern const unsigned default_picture_big_len[DEFAULT_PICTURES];

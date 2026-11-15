@@ -5,7 +5,7 @@
 //     "favicon" is fetched;
 //   * a song (on a station: "Artist - Title") or a file without a picture
 //     (artist and album, else artist and title): the iTunes search is asked,
-//     its "artworkUrl100" is fetched (bigger: 300 x 300).
+//     its "artworkUrl100" is fetched (bigger: 600 x 600).
 // What was found is kept in <config>/Logos and <config>/Covers ("none" too),
 // so the next time it is there at once. Each lookup runs in a thread; the
 // main loop takes the result (logo_take) and makes the cover.
@@ -119,7 +119,7 @@ static void ask_itunes(job_t *j, char *art, size_t n, bool *answered)
     json_value(r, "artworkUrl100", art, n);
     free(r);
     char *s = strstr(art, "100x100bb");     // (a bigger one: Apple makes any size)
-    if (s) memcpy(s, "300x300bb", 9);
+    if (s) memcpy(s, "600x600bb", 9);         // (600: the full screen cover too)
 }
 
 static int run(void *arg)

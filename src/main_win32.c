@@ -28,6 +28,7 @@
 #include "sys.h"
 #include "util.h"
 #include "cover.h"
+#include "picture.h"
 
 #ifndef PICOAMP_VERSION
 #define PICOAMP_VERSION "dev"
@@ -613,37 +614,35 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     return rc;
 }
 
-// ---------------- covers: what TJpgDec does not read (PNG, progressive JPEG, GIF ...): Windows's own
-// decoder (WIC), made at most 320 pixels big first
-bool plat_decode_image(const uint8_t *data, size_t len)
+// ---------------- pictures: what TJpgDec does not read (PNG, progressive JPEG, GIF ...): Windows's own
+// decoder (WIC), made smaller first when bigger than max_w x max_h. (Any thread: each call its own factory.)
+uint8_t *plat_decode_rgb(const uint8_t *data, size_t len, int max_w, int max_h, int *ow, int *oh)
 {
-    static IWICImagingFactory *wic;
-    static bool tried;
-    if (!tried)
-    {
-        tried = true;
-        CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-        if (FAILED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&wic))) wic = NULL;
-    }
-    if (!wic || len > 0xFFFFFFFFu) return false;
-    bool ok = false;
+    if (!data || len > 0xFFFFFFFFu) return NULL;
+    HRESULT co = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    IWICImagingFactory *wic = NULL;
+    if (FAILED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&wic))) wic = NULL;
+    BYTE *res = NULL;
     IWICStream *stream = NULL;
     IWICBitmapDecoder *dec = NULL;
     IWICBitmapFrameDecode *frame = NULL;
     IWICBitmapScaler *scaler = NULL;
     IWICBitmapSource *rgb = NULL;
     UINT w = 0, h = 0;
-    if (SUCCEEDED(wic->lpVtbl->CreateStream(wic, &stream)) &&
+    if (wic &&
+        SUCCEEDED(wic->lpVtbl->CreateStream(wic, &stream)) &&
         SUCCEEDED(stream->lpVtbl->InitializeFromMemory(stream, (BYTE *)data, (DWORD)len)) &&
         SUCCEEDED(wic->lpVtbl->CreateDecoderFromStream(wic, (IStream *)stream, NULL, WICDecodeMetadataCacheOnDemand, &dec)) &&
         SUCCEEDED(dec->lpVtbl->GetFrame(dec, 0, &frame)) &&
         SUCCEEDED(frame->lpVtbl->GetSize(frame, &w, &h)) && w && h)
     {
-        UINT m = w > h ? w : h, sw = w, sh = h;
+        UINT sw = w, sh = h;
         IWICBitmapSource *src = (IWICBitmapSource *)frame;
-        if (m > 320 && SUCCEEDED(wic->lpVtbl->CreateBitmapScaler(wic, &scaler)))
+        if (max_w > 0 && max_h > 0 && (w > (UINT)max_w || h > (UINT)max_h) && SUCCEEDED(wic->lpVtbl->CreateBitmapScaler(wic, &scaler)))
         {
-            sw = w * 320 / m; sh = h * 320 / m;
+            double f = (double)max_w / w;
+            if ((double)max_h / h < f) f = (double)max_h / h;
+            sw = (UINT)(w * f); sh = (UINT)(h * f);
             if (!sw) sw = 1;
             if (!sh) sh = 1;
             if (SUCCEEDED(scaler->lpVtbl->Initialize(scaler, src, sw, sh, WICBitmapInterpolationModeFant))) src = (IWICBitmapSource *)scaler;
@@ -653,12 +652,8 @@ bool plat_decode_image(const uint8_t *data, size_t len)
         {
             UINT stride = sw * 3;
             BYTE *px = malloc((size_t)stride * sh);
-            if (px && SUCCEEDED(rgb->lpVtbl->CopyPixels(rgb, NULL, stride, stride * sh, px)))
-            {
-                cover_from_rgb((int)sw, (int)sh, px, (int)stride);
-                ok = true;
-            }
-            free(px);
+            if (px && SUCCEEDED(rgb->lpVtbl->CopyPixels(rgb, NULL, stride, stride * sh, px))) { res = px; *ow = (int)sw; *oh = (int)sh; }
+            else free(px);
         }
     }
     if (rgb) rgb->lpVtbl->Release(rgb);
@@ -666,5 +661,18 @@ bool plat_decode_image(const uint8_t *data, size_t len)
     if (frame) frame->lpVtbl->Release(frame);
     if (dec) dec->lpVtbl->Release(dec);
     if (stream) stream->lpVtbl->Release(stream);
-    return ok;
+    if (wic) wic->lpVtbl->Release(wic);
+    if (SUCCEEDED(co)) CoUninitialize();
+    return res;
+}
+
+// covers: the same, made at most 320 pixels big
+bool plat_decode_image(const uint8_t *data, size_t len)
+{
+    int w, h;
+    uint8_t *px = plat_decode_rgb(data, len, 320, 320, &w, &h);
+    if (!px) return false;
+    cover_from_rgb(w, h, px, w * 3);
+    free(px);
+    return true;
 }

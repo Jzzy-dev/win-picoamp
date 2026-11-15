@@ -32,4 +32,5 @@ void *sys_fopen(const char *path, const char *mode);  // a FILE *
 // where things are
 const char *sys_config_dir(void);          // %APPDATA%\PicoAmp (~/.config/picoamp)
 const char *sys_music_dir(void);           // the user's Music folder
+const char *sys_pictures_dir(void);        // the user's Pictures folder
 int   sys_drives(char letters[26]);        // Windows: "CDE..."; 0 elsewhere

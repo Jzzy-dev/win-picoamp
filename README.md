@@ -12,6 +12,8 @@ and the window can be any size.
 | ![Clock](docs/clock.png) | ![Analog clock](docs/clock_analog.png) | ![Weather](docs/weather.png) |
 | **News (T)** | **A story** | **Full screen (Z)** |
 | ![News](docs/news.png) | ![Story](docs/news_story.png) | ![Plasma](docs/plasma.png) |
+| **Pictures (I)** | **A picture** | **The cover big (Z)** |
+| ![Pictures](docs/pictures.png) | ![A picture](docs/picture.png) | ![The cover big](docs/fullcover.png) |
 
 *(The screenshots come from the test build, with its test music, stations, places and feeds.)*
 
@@ -30,7 +32,8 @@ and the window can be any size.
   * `/` or `J` searches it by name.
 * **The picture:** a 24-band spectrum analyser with falling peaks, VU meters and an oscilloscope (V).
 * **The cover (V a third time),** as PICOAMP on the MSX shows it: 80×80 pixels in MSX SCREEN 4 cells
-  (two colours in every 8 pixels of a row) with five palette entries of its own, 12 bars beside it.
+  (two colours in every 8 pixels of a row) with five palette entries of its own for each row of cells
+  (as the MSX with engine 0.17; `rows = off` in `picoamp.ini`: five for all of it), 12 bars beside it.
   * It comes from the track's tag (MP3's ID3 picture, the front cover first; FLAC's picture), else from
     an image in its folder: `cover`, `folder`, `front`, `album`, `albumart` or `AlbumArtSmall`, as
     `.jpg`, `.jpeg` or `.png`.
@@ -49,8 +52,19 @@ and the window can be any size.
   * **G** opens the equalizer: five sliders (60 Hz to 12 kHz, ±12 dB) and the balance. Use the keys or
     drag the knobs with the mouse.
   * **E** steps through the presets.
-  * **Z** shows the full-screen pictures: Bars, Mirror, Plasma and Cover (the cover twice as big).
+  * **Z** shows the full-screen pictures: Bars, Mirror, Plasma and Cover. Cover shows the cover big in
+    MSX SCREEN 8 (256 × 192, 256 colours, dithered), as the MSX does: the track's own picture, the
+    folder's, the one from the internet (iTunes covers at 600 × 600), the default pictures whole.
   * The analyser and equalizer are the PicoVerse Audio Engine's own code, so the bars move as on the MSX.
+* **Pictures (I):** a browser of the PC's folders that shows only folders and pictures (JPEG, PNG, BMP,
+  GIF, TIFF, WebP), starting in your Pictures folder.
+  * Enter shows one in MSX SCREEN 8 (256 × 192, 256 colours, fitted with the MSX's dot shape and
+    dithered); Left/Right the one before or after, Space marks it, any other key goes back.
+  * Space marks pictures (A all); **G** plays the marked ones, or all of the folder, as a slideshow.
+  * **O** sets the screensaver (off, 1, 2, 5, 10, 15 or 30 minutes), **R** how long a picture shows
+    (5 to 60 s), **U** shuffle, **F** makes this folder the screensaver's.
+  * The screensaver plays that folder's slideshow after the minutes without a key or a click, while the
+    player shows (not on another page); any key goes back. The music plays on.
 * **Clock (C):** digital or analog.
   * Shows the date, the place and the weather now.
   * Its colours turn round a colour wheel with the music (X: or one colour).
@@ -94,6 +108,7 @@ and the window can be any size.
 | G | Equalizer | E | Next equalizer preset |
 | Z | Full screen pictures | / or J | Search the station directory |
 | C / W / T | Clock / weather / news | ? or F1 | Help (also the **?** box in the title bar) |
+| I | Pictures and slideshow | | |
 | F / D | Favourite add / remove | Ctrl+Up/Down | Move a favourite |
 | O | Open the station lists' folder | Q | Quit |
 | F11, Alt+Enter | Full screen | F2 / F3 / F4 | Scaling / scan lines / always on top |
@@ -103,6 +118,9 @@ X the colours, B the small spectrum, O the sleep timer, A the alarm.
 **News:** Enter reads, 1-9 open a feed, F opens My feeds, S changes the order, N/P the next or previous
 story. In My feeds: Enter, D, U/J move, and A adds an address.
 **Equalizer:** Left/Right picks a band or the balance, Up/Down changes it, 0 resets it.
+**Pictures:** Enter shows a picture or opens a folder, Backspace the folder above (and the drives),
+Space marks, A all, G slideshow, O screensaver, R interval, U shuffle, F the screensaver's folder,
+Esc or I back.
 The playback keys work on every page.
 
 **Mouse:**
@@ -126,7 +144,7 @@ Everything is in `%APPDATA%\PicoAmp` and is plain text, so you can edit it while
 
 | File | What |
 |------|------|
-| `picoamp.ini` | The settings: volume, equalizer, balance, the window, scaling, the clock, the place, the alarm, the news order, the folder of the Music entry |
+| `picoamp.ini` | The settings: volume, equalizer, balance, the window, scaling, the clock, the place, the alarm, the news order, the folder of the Music entry, the cover's colours (`rows`), the pictures (`saver`, `interval`, `pictures_shuffle`, `pictures`: the screensaver's folder) |
 | `Radio\*.m3u, *.pls` | The station lists. `Stations.m3u` is written at the first start; `Favourites.m3u` is kept by F, D and Ctrl+Up/Down |
 | `MyFeeds.opml` | My feeds (the news) |
 
