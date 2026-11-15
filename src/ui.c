@@ -847,7 +847,7 @@ static void draw_help(void)
         { A_NORM, "F          favourite+ D, DEL favourite-" },
         { A_NORM, "I          pictures   Ctrl+Up/Down fav" },
         { A_NORM, "O          stations   Q      quit" },
-        { A_NORM, "? or F1    this help (or click the ?)" },
+        { A_NORM, "$          markets    ? F1   this help" },
         { COL(CYAN, NAVY), "Window: F11 or Alt+Enter full screen," },
         { COL(CYAN, NAVY), "  F2 scaling: fit / whole / stretch," },
         { COL(CYAN, NAVY), "  F3 scan lines, F4 always on top," },
@@ -881,7 +881,7 @@ static void draw_help(void)
 }
 
 // ---------------- pages ----------------
-static const page_t *const pages[PG_COUNT] = { NULL, &page_full, &page_clock, &page_wx, &page_news, &page_pics };
+static const page_t *const pages[PG_COUNT] = { NULL, &page_full, &page_clock, &page_wx, &page_news, &page_pics, &page_markets };
 
 int ui_page_now(void) { return page; }
 
@@ -1062,6 +1062,7 @@ void ui_key(int k)
     case 'W': ui_page(PG_WX); return;
     case 'T': ui_page(PG_NEWS); return;
     case 'I': ui_page(PG_PICS); return;
+    case '$': ui_page(PG_MARKETS); return;
     case 'F': fav_add(); return;
     case 'D': case K_DEL: fav_del(); return;
     case K_CTRL_UP: case K_CTRL_DOWN:

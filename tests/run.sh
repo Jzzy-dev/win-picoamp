@@ -30,6 +30,7 @@ SRV2=$!
 trap 'kill $SRV $SRV2 2>/dev/null' EXIT
 export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi PICOAMP_ITUNES=http://localhost:$WEB/itunes
 export PICOAMP_METEO=http://localhost:$WEB/meteo PICOAMP_GEO=http://localhost:$WEB/geo
+export PICOAMP_YAHOO=http://localhost:$WEB PICOAMP_YFEEDS=http://localhost:$WEB
 sleep 0.5
 printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n#EXTINF:-1,Live\r\nhttp://localhost:%d/mid\r\n' \
     $PORT $PORT $PORT $PORT $PORT > $T/cfg/Radio/Test.m3u
@@ -164,6 +165,23 @@ check "news: the full article" "$out" "| Paragraph 0 of the article 24."
 printf '%s\n' "$out" | grep -q "Footer text\|Menu Home" && { echo "FAIL news: menus or footer in the article"; fail=1; } || echo "ok   news: no menus or footers"
 check "news: from the catalogue" "$out" "7 BBC News, top stories = https://feeds.bbci.co.uk/news/rss.xml"
 grep -q 'xmlUrl="http://localhost' $T/cfg/MyFeeds.opml && echo "ok   news: MyFeeds.opml" || { echo "FAIL MyFeeds.opml"; fail=1; }
+
+# the markets: a list's prices, the order by percent, an index's members, the tape, a chart and its headlines
+out=$(run "key \$; wait 1500; page; shot $T/markets.png 2; key Down; key Down; key Down; key Down; key I; wait 1500; page; key PgDn; page; key BS; page; key O; page; key O; key O")
+check "markets: Europe's indices" "$out" "markets table region=Europe list='Indices' rows=20 state=2"
+check "markets: AEX's price" "$out" "\^AEX AEX [0-9]"
+check "markets: the tape" "$out" "tape: \^AEX,\^GDAXI,\^FTSE,\^FCHI story 0 & more +++"
+check "markets: risers first" "$out" "list='Indices' rows=20 state=2 sort=1 sel=4"
+check "markets: FTSE 100's members" "$out" "list='FTSE 100' rows=98 state=2"
+check "markets: the next page" "$out" "rows=98 state=2 sort=0 sel=40 top=40"
+check "markets: back to the list" "$out" "list='Indices' rows=20 state=2 sort=0 sel=4"
+out=$(run "key \$; wait 1500; key Enter; wait 1500; page; shot $T/markets_chart.png 2; key Right; key Right; key Right; key Right; key Right; wait 1500; page; shot $T/markets_year.png 2; key T; wait 100; page; key Esc; page; key Left; key Left; key Left; key Left; key Left")
+check "markets: the day's chart" "$out" "sym=\^AEX range=1D chart=2 points=33"
+check "markets: its headlines" "$out" "head: \^AEX story 5 & more"
+check "markets: a year" "$out" "range=1Y chart=2 points=255"
+check "markets: the headlines in the news reader" "$out" "news headlines feed='Market news: AEX' state=2 stories=6"
+check "markets: and back" "$out" "markets chart .* sym=\^AEX range=1Y"
+grep -q "^region = europe" $T/cfg/picoamp.ini && grep -q "^range = 1d" $T/cfg/picoamp.ini && echo "ok   markets: picoamp.ini" || { echo "FAIL markets: picoamp.ini"; fail=1; }
 
 # the pictures (I): the browser (folders and pictures only), one picture, the slideshow, the settings
 mkdir -p $T/Pictures/Holiday

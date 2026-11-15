@@ -24,6 +24,7 @@ static void defaults(void)
     cfg.alarm_m = 30;
     cfg.cover_rows = true;
     cfg.pic_interval = 10;
+    cfg.mk_refresh = 60;
 }
 
 static const char *ini_path(void)
@@ -101,6 +102,17 @@ void config_load(void)
         else if (!u_stricmp(k, "alarm_name")) u_copy(cfg.alarm_name, sizeof cfg.alarm_name, v);
         else if (!u_stricmp(k, "sort")) cfg.news_by_feed = !u_stricmp(v, "feed");
         else if (!u_stricmp(k, "rows")) cfg.cover_rows = yes(v);
+        else if (!u_stricmp(k, "region"))
+        {
+            for (int i = 0; i < 3; i++) if (!u_stricmp(v, (const char *const[]){ "europe", "americas", "asia" }[i])) cfg.mk_region = i;
+        }
+        else if (!u_stricmp(k, "order")) cfg.mk_sort = !u_stricmp(v, "risers") ? 1 : !u_stricmp(v, "fallers") ? 2 : 0;
+        else if (!u_stricmp(k, "range"))
+        {
+            for (int i = 0; i < 8; i++) if (!u_stricmp(v, (const char *const[]){ "1d", "5d", "1m", "6m", "ytd", "1y", "5y", "all" }[i])) cfg.mk_range = i;
+        }
+        else if (!u_stricmp(k, "refresh")) cfg.mk_refresh = atoi(v);
+        else if (!u_stricmp(k, "list")) u_copy(cfg.mk_list, sizeof cfg.mk_list, v);
         else if (!u_stricmp(k, "saver")) cfg.pic_saver = atoi(v);
         else if (!u_stricmp(k, "interval")) cfg.pic_interval = atoi(v);
         else if (!u_stricmp(k, "pictures_shuffle")) cfg.pic_shuffle = yes(v);
@@ -113,6 +125,7 @@ void config_load(void)
     if (!cfg.loc_ip && !cfg.loc_name[0]) cfg.loc_ip = true;
     if (cfg.pic_saver < 0 || cfg.pic_saver > 240) cfg.pic_saver = 0;
     if (cfg.pic_interval < 2 || cfg.pic_interval > 3600) cfg.pic_interval = 10;
+    if (cfg.mk_refresh < 20) cfg.mk_refresh = 60;
     if (cfg.alarm_h < 0 || cfg.alarm_h > 23 || cfg.alarm_m < 0 || cfg.alarm_m > 59) cfg.alarm_on = false;
 }
 
@@ -152,6 +165,10 @@ void config_save(void)
         "[news]\r\n"
         "; My feeds are in MyFeeds.opml (beside this file); sort: date (newest first) or feed\r\n"
         "sort = %s\r\n"
+        "[markets]\r\n"
+        "; region: europe, americas or asia; order: list, risers or fallers; range: the chart's (1d 5d 1m 6m ytd 1y 5y all);\r\n"
+        "; refresh: seconds between the prices; list: My list, Yahoo Finance symbols with a comma between them\r\n"
+        "region = %s\r\norder = %s\r\nrange = %s\r\nrefresh = %d\r\nlist = %s\r\n"
         "[cover]\r\n"
         "; rows: five colours of its own for every row of the cover's cells (as the MSX); off: five for all of it\r\n"
         "rows = %s\r\n"
@@ -171,6 +188,8 @@ void config_save(void)
         cfg.loc_ip ? "ip" : "place", cfg.loc_name, cfg.loc_lat, cfg.loc_lon,
         cfg.alarm_on ? "on" : "off", cfg.alarm_h, cfg.alarm_m, cfg.alarm_weekdays ? "weekdays" : "daily",
         cfg.alarm_play, cfg.alarm_name, cfg.news_by_feed ? "feed" : "date",
+        (const char *const[]){ "europe", "americas", "asia" }[cfg.mk_region % 3], (const char *const[]){ "list", "risers", "fallers" }[cfg.mk_sort % 3],
+        (const char *const[]){ "1d", "5d", "1m", "6m", "ytd", "1y", "5y", "all" }[cfg.mk_range % 8], cfg.mk_refresh, cfg.mk_list,
         cfg.cover_rows ? "on" : "off", cfg.pic_saver, cfg.pic_interval, cfg.pic_shuffle ? "yes" : "no", cfg.pic_folder);
     if (n > 0) sys_write_file(ini_path(), buf, (size_t)n);
 }

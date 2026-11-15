@@ -606,7 +606,9 @@ typedef struct { char url[1200]; unsigned gen; } job_t;
 static char *fetch_all(const char *url, size_t max, size_t *len, char *e, size_t en, unsigned *g, unsigned want, size_t *progress)
 {
     int st;
-    net_conn *c = net_get(url, NULL, &st, e, en, NULL);
+    // (Yahoo Finance's feeds answer a browser's User-Agent)
+    const char *ua = strstr(url, "yahoo.com/") ? "User-Agent: Mozilla/5.0 (compatible; PicoAmp for Windows)" : NULL;
+    net_conn *c = net_get(url, ua, &st, e, en, NULL);
     if (!c) return NULL;
     size_t cap = 65536, n = 0;
     char *b = malloc(cap + 1);
@@ -670,6 +672,7 @@ void nf_fetch(const char *url)
 }
 
 int nf_state(void) { init(); sys_lock(lock); int s = state; sys_unlock(lock); return s; }
+unsigned nf_serial(void) { init(); sys_lock(lock); unsigned g = (unsigned)gen; sys_unlock(lock); return g; }
 const char *nf_error(void) { return err; }
 const char *nf_feed_title(void) { return feed_title; }
 nf_item *nf_items(int *count) { *count = n_items; return items; }

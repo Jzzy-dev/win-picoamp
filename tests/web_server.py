@@ -97,6 +97,31 @@ class H(http.server.BaseHTTPRequestHandler):
                           "temperature_2m_max": [10.2, 11.0, 12.5, 3.1, 15.0, 9.9],
                           "temperature_2m_min": [4.1, 3.0, 4.4, -6.2, 10.0, 2.2],
                           "precipitation_probability_max": [80, 20, 0, 65, 100, 10]}}))
+        elif p == '/v8/finance/spark':                     # Yahoo Finance's chart service (as it answered in November 2026)
+            syms = q.get('symbols', '').split(',')
+            rng, out = q.get('range', '1d'), {}
+            for k, sy in enumerate(syms):
+                h = sum(ord(c) for c in sy)
+                price = 100 + h % 900 + (h % 97) / 100.0
+                prev = round(price * (1 - ((h % 7) - 3) / 100.0), 2)
+                n = {'1d': 1, '5d': 46, '1mo': 24, '6mo': 133, 'ytd': 223, '1y': 256, '5y': 262, 'max': 410}.get(rng, 1)
+                if q.get('interval') == '15m': n = 34
+                step = {'15m': 900, '60m': 3600, '1wk': 604800, '1mo': 2629800}.get(q.get('interval'), 86400)
+                end = 1794587400
+                ts = [end - (n - 1 - i) * step for i in range(n)] if n > 1 else [1794572130]
+                cl = [round(prev + (price - prev) * i / max(n - 1, 1) + (2 if (i // 4) % 2 else -2), 2) for i in range(n)] if n > 1 else [price]
+                cl[-1] = price
+                if n > 3: cl[2] = None
+                out[sy] = {"timestamp": ts, "symbol": sy, "end": end if q.get('interval') == '15m' else None,
+                           "start": 1794556800 if q.get('interval') == '15m' else None, "close": cl, "previousClose": None,
+                           "chartPreviousClose": prev, "fulldayChange": round(price - prev, 2), "fulldayPrice": price, "dataGranularity": 300}
+                if sy == 'NOPE.XX': del out[sy]
+            self.reply(json.dumps(out))
+        elif p == '/rss/2.0/headline':                     # Yahoo Finance's feed for symbols
+            s = q.get('s', '')
+            items = ''.join('<item><title>%s story %d &amp; more</title><link>http://localhost:%d/articles/%d.html</link>'
+                            '<description>About %s.</description><pubDate>Fri, 13 Nov 2026 1%d:00:00 +0000</pubDate></item>' % (s, i, PORT, i, s, i) for i in range(6))
+            self.reply('<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Yahoo! Finance: %s News</title>%s</channel></rss>' % (s, items), 'application/xml')
         elif p == '/feeds/rss.xml':
             items = ''.join('<item><title>Story %d &amp; more</title><link>http://localhost:%d/articles/%d.html</link>'
                             '<description>&lt;p&gt;Summary of story %d, with some words to wrap over the lines of the screen.&lt;/p&gt;</description>'
