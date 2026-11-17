@@ -145,6 +145,20 @@ grep -q "byurl http://localhost:$PORT/stream.mp3" $T/web.log && echo "ok   logo:
 ls $T/cfg/Logos/*.none > /dev/null 2>&1 && echo "ok   logo: 'none' kept" || { echo "FAIL logo: none not kept"; fail=1; }
 sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini
 
+# how many are kept (keepcovers 200): 215 old copies; a "none" note older than 30 days: asked again; the
+# song's answer kept, the oldest go (down to 90 %)
+for i in $(seq 1 215); do f=$T/cfg/Covers/old$(printf %03d $i).img; : > $f; touch -d @$((1577836800 + i * 60)) $f; done
+for f in $T/cfg/Covers/*.none; do touch -d "40 days ago" "$f"; done
+n=$(grep -c "itunes" $T/web.log)
+sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
+out=$(run "key Down; key Enter; wait 2500; status")
+[ "$(grep -c "itunes" $T/web.log)" -gt "$n" ] && echo "ok   covers: a 'none' older than 30 days: asked again" || { echo "FAIL covers: an old 'none' not asked again"; fail=1; }
+c=$(ls $T/cfg/Covers | wc -l)
+[ "$c" -le 200 ] && [ "$c" -ge 175 ] && echo "ok   covers: at most 200 kept ($c)" || { echo "FAIL covers: $c kept"; fail=1; }
+[ ! -e $T/cfg/Covers/old001.img ] && [ -e $T/cfg/Covers/old215.img ] && echo "ok   covers: the oldest went" || { echo "FAIL covers: not the oldest"; fail=1; }
+rm -f $T/cfg/Covers/old*.img
+sed -i "s|^folder = .*|folder = radio:|" $T/cfg/picoamp.ini
+
 # the clock (place by IP, by name; sleep timer; alarm) and the weather
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini
 out=$(run "key Down; key Enter; wait 1500; key C; wait 1200; page; shot $T/clock.png 3; key V; shot $T/analog.png 3; key O; key A; type 6:45w; key Enter; key L; type Sydney; key Enter; wait 600; key Down; key Enter; wait 800; page; key W; wait 300; page; shot $T/weather.png 3")

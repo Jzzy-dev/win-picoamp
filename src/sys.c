@@ -120,6 +120,40 @@ bool sys_file_exists(const char *path)
     return a != INVALID_FILE_ATTRIBUTES;
 }
 
+// a file's last change (seconds since 1970; 0: none), made now; a file removed
+int64_t sys_file_time(const char *path)
+{
+    wchar_t *w = wide(path);
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    BOOL ok = GetFileAttributesExW(w, GetFileExInfoStandard, &a);
+    free(w);
+    if (!ok) return 0;
+    ULARGE_INTEGER t;
+    t.LowPart = a.ftLastWriteTime.dwLowDateTime;
+    t.HighPart = a.ftLastWriteTime.dwHighDateTime;
+    return (int64_t)(t.QuadPart / 10000000ULL) - 11644473600LL;
+}
+
+void sys_touch(const char *path)
+{
+    wchar_t *w = wide(path);
+    HANDLE h = CreateFileW(w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    free(w);
+    if (h == INVALID_HANDLE_VALUE) return;
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    SetFileTime(h, NULL, NULL, &ft);
+    CloseHandle(h);
+}
+
+bool sys_delete(const char *path)
+{
+    wchar_t *w = wide(path);
+    BOOL ok = DeleteFileW(w);
+    free(w);
+    return ok != 0;
+}
+
 static bool mkdir_one(const char *path)
 {
     wchar_t *w = wide(path);
@@ -222,6 +256,7 @@ int sys_drives(char letters[26])
 }
 
 #else  // POSIX (the tests)
+#include <utime.h>
 #include <pthread.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -310,6 +345,16 @@ bool sys_file_exists(const char *path)
     struct stat st;
     return !stat(path, &st);
 }
+
+int64_t sys_file_time(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) ? 0 : (int64_t)st.st_mtime;
+}
+
+void sys_touch(const char *path) { utime(path, NULL); }
+
+bool sys_delete(const char *path) { return !remove(path); }
 
 static bool mkdir_one(const char *path)
 {

@@ -27,6 +27,9 @@ bool  sys_mkdir(const char *path);         // and its parents
 bool  sys_file_exists(const char *path);
 char *sys_read_file(const char *path, size_t *len);   // malloc'd, 0-terminated
 bool  sys_write_file(const char *path, const void *data, size_t len);
+int64_t sys_file_time(const char *path);   // its last change (seconds since 1970; 0: none)
+void  sys_touch(const char *path);         // its last change: now
+bool  sys_delete(const char *path);
 void *sys_fopen(const char *path, const char *mode);  // a FILE *
 
 // where things are

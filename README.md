@@ -47,6 +47,9 @@ and the window can be any size.
     artist and album, else artist and title), get their cover from the iTunes search, kept in
     `%APPDATA%\PicoAmp\Covers`. A song's cover shows over the station's logo; a song without one shows
     the logo again.
+  * At most 100 logos and 200 covers are kept (`keeplogos`, `keepcovers` in `picoamp.ini`; 0 keeps all).
+    When a folder has more, the ones shown longest ago go, down to 90 %; a copy shown again counts as
+    new. "No logo" and "no cover" notes are asked again after 30 days.
   * When nothing has a cover, one of three default pictures shows (Copacabana, New York, Amsterdam), a
     new one at random for each track or station. More: put JPEG or PNG files in `%APPDATA%\PicoAmp\Defaults`.
   * JPEGs go through the same decoder as on the MSX (TJpgDec); PNG and the rest through Windows's own.
@@ -166,7 +169,7 @@ Everything is in `%APPDATA%\PicoAmp` and is plain text, so you can edit it while
 
 | File | What |
 |------|------|
-| `picoamp.ini` | The settings: volume, equalizer, balance, the window, scaling, the clock, the place, the alarm, the news order, the folder of the Music entry, the cover's colours (`rows`), the pictures (`saver`, `interval`, `pictures_shuffle`, `pictures`: the screensaver's folder) |
+| `picoamp.ini` | The settings: volume, equalizer, balance, the window, scaling, the clock, the place, the alarm, the news order, the folder of the Music entry, the cover's colours (`rows`), how many logos and covers are kept (`keeplogos`, `keepcovers`), the pictures (`saver`, `interval`, `pictures_shuffle`, `pictures`: the screensaver's folder) |
 | `Radio\*.m3u, *.pls` | The station lists. `Stations.m3u` is written at the first start; `Favourites.m3u` is kept by F, D and Ctrl+Up/Down |
 | `MyFeeds.opml` | My feeds (the news) |
 

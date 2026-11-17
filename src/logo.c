@@ -17,6 +17,7 @@
 #include "radiodir.h"
 #include "sys.h"
 #include "util.h"
+#include "config.h"
 
 #define IMG_MAX (2u << 20)
 
@@ -122,6 +123,8 @@ static void ask_itunes(job_t *j, char *art, size_t n, bool *answered)
     if (s) memcpy(s, "600x600bb", 9);         // (600: the full screen cover too)
 }
 
+static void prune(const char *dir, int keep);
+
 static int run(void *arg)
 {
     job_t *j = arg;
@@ -147,10 +150,53 @@ static int run(void *arg)
         sys_mkdir(d);
         snprintf(p, sizeof p, "%s%s", j->cache, img ? "img" : "none");
         sys_write_file(p, img ? (const void *)img : "", img ? n : 0);
+        prune(d, j->ch == LOGO_STATION ? cfg.keep_logos : cfg.keep_covers);
     }
     deliver(j->ch, j->gen, img, n);
     free(j);
     return 0;
+}
+
+// ---------------- how many are kept ([cover] keeplogos 100, keepcovers 200; 0: all): when a folder has
+// more, the ones shown longest ago (a copy shown again counts as new) go, down to 90 %. "None" notes are
+// asked again after 30 days (a song may have a cover by then).
+#define NONE_DAYS 30
+
+typedef struct { int64_t t; char *name; } aged;
+static int aged_cmp(const void *a, const void *b)
+{
+    const aged *x = a, *y = b;
+    return x->t < y->t ? -1 : x->t > y->t;
+}
+
+static void prune(const char *dir, int keep)
+{
+    sys_dirent *d = NULL;
+    int n = 0;
+    if (keep <= 0 || !sys_list_dir(dir, &d, &n)) return;
+    aged *a = calloc((size_t)(n ? n : 1), sizeof *a);
+    int m = 0;
+    for (int i = 0; a && i < n; i++)
+    {
+        if (d[i].is_dir) continue;
+        char p[1100];
+        u_join(p, sizeof p, dir, d[i].name);
+        a[m].t = sys_file_time(p);
+        a[m].name = d[i].name;
+        m++;
+    }
+    if (a && m > keep)
+    {
+        qsort(a, (size_t)m, sizeof *a, aged_cmp);
+        for (int i = 0; i < m - keep * 9 / 10; i++)
+        {
+            char p[1100];
+            u_join(p, sizeof p, dir, a[i].name);
+            sys_delete(p);
+        }
+    }
+    free(a);
+    sys_free_dir(d, n);
 }
 
 // known already: delivered at once; else asked in a thread
@@ -160,9 +206,10 @@ static void ask(job_t *j)
     size_t n = 0;
     snprintf(p, sizeof p, "%simg", j->cache);
     char *d = sys_file_exists(p) ? sys_read_file(p, &n) : NULL;
-    if (d) { deliver(j->ch, j->gen, (uint8_t *)d, n); free(j); return; }
+    if (d) { sys_touch(p); deliver(j->ch, j->gen, (uint8_t *)d, n); free(j); return; }    // (shown again: new)
     snprintf(p, sizeof p, "%snone", j->cache);
-    if (sys_file_exists(p)) { deliver(j->ch, j->gen, NULL, 0); free(j); return; }
+    int64_t t = sys_file_time(p);
+    if (t && sys_unix_time() - t < NONE_DAYS * 86400LL) { deliver(j->ch, j->gen, NULL, 0); free(j); return; }
     sys_thread_detach(sys_thread_start(run, j));
 }
 
