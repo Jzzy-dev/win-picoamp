@@ -12,9 +12,13 @@
 #include <string.h>
 #include <time.h>
 #include "newsfeed.h"
-#include "net.h"
 #include "sys.h"
 #include "util.h"
+#ifdef __wasm__
+#include "web.h"
+#else
+#include "net.h"
+#endif
 
 #define MAX_ITEMS   100
 #define FEED_MAX    (2u * 1024u * 1024u)
@@ -603,6 +607,7 @@ void nf_sort(bool d)
 
 typedef struct { char url[1200]; unsigned gen; } job_t;
 
+#ifndef __wasm__
 static char *fetch_all(const char *url, size_t max, size_t *len, char *e, size_t en, unsigned *g, unsigned want, size_t *progress)
 {
     int st;
@@ -625,12 +630,11 @@ static char *fetch_all(const char *url, size_t max, size_t *len, char *e, size_t
     return b;
 }
 
-static int feed_run(void *arg)
+#endif
+
+// a feed's answer (body NULL: none, e why)
+static void feed_done(job_t *jb, char *body, size_t len, const char *e)
 {
-    job_t *jb = arg;
-    char e[200] = "";
-    size_t len = 0;
-    char *body = fetch_all(jb->url, FEED_MAX, &len, e, sizeof e, &gen, jb->gen, NULL);
     feed_t *F = calloc(1, sizeof *F);
     F->v = calloc(MAX_ITEMS, sizeof *F->v);
     F->fbuf = malloc(FIELD_MAX + 1);
@@ -653,36 +657,11 @@ static int feed_run(void *arg)
     sys_unlock(lock);
     free(F);
     free(jb);
-    return 0;
 }
 
-void nf_fetch(const char *url)
+// a story's page's answer
+static void art_done(job_t *jb, char *page, size_t len)
 {
-    init();
-    job_t *jb = calloc(1, sizeof *jb);
-    u_copy(jb->url, sizeof jb->url, url);
-    sys_lock(lock);
-    jb->gen = ++gen;
-    a_gen++;
-    state = NF_BUSY;
-    a_state = NF_IDLE;
-    feed_title[0] = 0;
-    sys_unlock(lock);
-    sys_thread_detach(sys_thread_start(feed_run, jb));
-}
-
-int nf_state(void) { init(); sys_lock(lock); int s = state; sys_unlock(lock); return s; }
-unsigned nf_serial(void) { init(); sys_lock(lock); unsigned g = (unsigned)gen; sys_unlock(lock); return g; }
-const char *nf_error(void) { return err; }
-const char *nf_feed_title(void) { return feed_title; }
-nf_item *nf_items(int *count) { *count = n_items; return items; }
-
-static int art_run(void *arg)
-{
-    job_t *jb = arg;
-    char e[200] = "";
-    size_t len = 0;
-    char *page = fetch_all(jb->url, PAGE_MAX, &len, e, sizeof e, &a_gen, jb->gen, &a_bytes);
     char *t = page ? nf_html_text(page, len, true) : NULL;
     free(page);
     sys_lock(lock);
@@ -696,8 +675,96 @@ static int art_run(void *arg)
     sys_unlock(lock);
     free(t);
     free(jb);
+}
+
+#ifndef __wasm__
+static int feed_run(void *arg)
+{
+    job_t *jb = arg;
+    char e[200] = "";
+    size_t len = 0;
+    char *body = fetch_all(jb->url, FEED_MAX, &len, e, sizeof e, &gen, jb->gen, NULL);
+    feed_done(jb, body, len, e);
     return 0;
 }
+
+static int art_run(void *arg)
+{
+    job_t *jb = arg;
+    char e[200] = "";
+    size_t len = 0;
+    char *page = fetch_all(jb->url, PAGE_MAX, &len, e, sizeof e, &a_gen, jb->gen, &a_bytes);
+    art_done(jb, page, len);
+    return 0;
+}
+#define START_FEED(jb) sys_thread_detach(sys_thread_start(feed_run, jb))
+#define START_ART(jb)  sys_thread_detach(sys_thread_start(art_run, jb))
+#else
+// the browser: the sites do not let other pages read them, so through the relay ("relay:",
+// web/picoamp.js); the answer comes in a callback (a copy, 0-terminated, cut to max)
+static char *web_copy(int status, const char *data, size_t len, size_t max, size_t *out_len, const char *e, char *m, size_t mn)
+{
+    if (status < 200 || status >= 300 || !data)
+    {
+        if (status) snprintf(m, mn, "HTTP %d", status);
+        else u_copy(m, mn, e && *e ? e : "no answer");
+        return NULL;
+    }
+    if (len > max) len = max;
+    char *b = malloc(len + 1);
+    memcpy(b, data, len);
+    b[len] = 0;
+    *out_len = len;
+    return b;
+}
+
+static void feed_got(void *user, int status, const char *data, size_t len, const char *e)
+{
+    char m[200] = "";
+    size_t n = 0;
+    char *b = web_copy(status, data, len, FEED_MAX, &n, e, m, sizeof m);
+    feed_done(user, b, n, m);
+}
+
+static void art_got(void *user, int status, const char *data, size_t len, const char *e)
+{
+    char m[200] = "";
+    size_t n = 0;
+    char *b = web_copy(status, data, len, PAGE_MAX, &n, e, m, sizeof m);
+    a_bytes = n;
+    art_done(user, b, n);
+}
+
+static void web_start(job_t *jb, net_cb cb)
+{
+    char u[1300];
+    snprintf(u, sizeof u, "relay:%s", jb->url);
+    net_fetch(u, cb, jb);
+}
+#define START_FEED(jb) web_start(jb, feed_got)
+#define START_ART(jb)  web_start(jb, art_got)
+#endif
+
+void nf_fetch(const char *url)
+{
+    init();
+    job_t *jb = calloc(1, sizeof *jb);
+    u_copy(jb->url, sizeof jb->url, url);
+    sys_lock(lock);
+    jb->gen = ++gen;
+    a_gen++;
+    state = NF_BUSY;
+    a_state = NF_IDLE;
+    feed_title[0] = 0;
+    sys_unlock(lock);
+    START_FEED(jb);
+}
+
+int nf_state(void) { init(); sys_lock(lock); int s = state; sys_unlock(lock); return s; }
+unsigned nf_serial(void) { init(); sys_lock(lock); unsigned g = (unsigned)gen; sys_unlock(lock); return g; }
+const char *nf_error(void) { return err; }
+const char *nf_feed_title(void) { return feed_title; }
+nf_item *nf_items(int *count) { *count = n_items; return items; }
 
 void nf_article(int i)
 {
@@ -723,7 +790,7 @@ void nf_article(int i)
     jb->gen = a_gen;
     a_state = NF_BUSY;
     sys_unlock(lock);
-    sys_thread_detach(sys_thread_start(art_run, jb));
+    START_ART(jb);
 }
 
 int nf_article_state(void) { init(); sys_lock(lock); int s = a_state; sys_unlock(lock); return s; }

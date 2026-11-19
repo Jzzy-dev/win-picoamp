@@ -23,6 +23,7 @@ enum { MS_IDLE, MS_BUSY, MS_DONE, MS_FAILED };
 typedef struct { bool have; double price, prev; } ms_quote;
 
 void ms_init(void);
+void ms_poll(void);                                 // the browser's: each frame (no threads there)
 // the list whose prices are fetched (now, then every refresh seconds); NULL: none
 void ms_set_list(const mk_item *items, int n);
 void ms_refresh_now(void);

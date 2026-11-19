@@ -307,6 +307,14 @@ static void draw_table(void)
         int r = top + k;
         draw_row(ROW0 + k % N_HALF, k < N_HALF ? 0 : 40, ord[r], r == sel);
     }
+    // (no prices at all: why, where the keys are)
+    if (ms_state() == MS_FAILED && !ms_updated() && ms_error()[0])
+    {
+        char l[120];
+        snprintf(l, sizeof l, " No prices: %s", ms_error());
+        keylines(l);
+        return;
+    }
     keylines(" </> list  Up/Down choose  Enter chart  I members (BS back)  O order  U now");
 }
 
@@ -626,6 +634,7 @@ static void mk_describe(char *out, size_t n)
 {
     size_t o = (size_t)snprintf(out, n, "markets %s region=%s list='%s' rows=%d state=%d sort=%d sel=%d top=%d",
                                 view == V_CHART ? "chart" : "table", mk_region_names[region], list_name(), n_items, ms_state(), cfg.mk_sort, sel, top);
+    if (ms_state() == MS_FAILED) o += (size_t)snprintf(out + o, n - o, " err='%s'", ms_error());
     if (view == V_TABLE)
     {
         char tape[200];

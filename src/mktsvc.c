@@ -3,15 +3,22 @@
 // (one instrument over a range) and the region's market headlines (every 15
 // minutes), from Yahoo Finance as the PicoVerse Audio Engine's pva_markets.c
 // does. A chart asked for goes before the rest of a long list's prices.
+// In the browser (__wasm__) there are no threads: ms_poll, each frame, starts one
+// request at a time and its answer comes in a callback; Yahoo does not let other
+// pages read it, so the requests go through the relay ("relay:", web/picoamp.js).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "markets.h"
-#include "net.h"
 #include "json.h"
 #include "sys.h"
 #include "util.h"
+#ifdef __wasm__
+#include "web.h"
+#else
+#include "net.h"
+#endif
 
 #define CHUNK      20
 #define PTS_MAX    1200
@@ -79,6 +86,7 @@ void ms_feed_url(const char *sym, char *out, size_t n)
     snprintf(out, n, "%s/rss/2.0/headline?s=%s&region=US&lang=en-US", feeds_base(), e);
 }
 
+#ifndef __wasm__
 static char *fetch(const char *url, size_t max, char *e, size_t en)
 {
     int status = 0;
@@ -103,6 +111,7 @@ static char *fetch(const char *url, size_t max, char *e, size_t en)
     b[len] = 0;
     return b;
 }
+#endif
 
 // ---------------- the replies ----------------
 // the path is "SYMBOL.field" (a symbol may have dots of its own)
@@ -232,25 +241,32 @@ static void titles(const char *x, char *o, size_t n)
 // ---------------- the thread ----------------
 static int64_t now_s(void) { return sys_unix_time(); }
 
-static void do_chart(void)
+// ---------------- the requests: their addresses, their answers ----------------
+typedef struct { char sym[32]; int range; } chart_ask;
+
+static void chart_url(chart_ask *a, char *url, size_t un)
 {
-    char sym[32], url[400], e[52], m[200] = "";
-    int range;
+    char e[52];
     sys_lock(mx);
-    u_copy(sym, sizeof sym, ch_sym);
-    range = ch_range;
+    u_copy(a->sym, sizeof a->sym, ch_sym);
+    a->range = ch_range;
     ch_asked = false;
     sys_unlock(mx);
     static const char *const rg[MS_RANGES] = { "range=1d&interval=15m", "range=5d&interval=60m", "range=1mo&interval=1d", "range=6mo&interval=1d",
                                                "range=ytd&interval=1d", "range=1y&interval=1d", "range=5y&interval=1wk", "range=max&interval=1mo" };
-    put_sym(e, sizeof e, sym);
-    snprintf(url, sizeof url, "%s/v8/finance/spark?symbols=%s&%s", base(), e, rg[range]);
+    put_sym(e, sizeof e, a->sym);
+    snprintf(url, un, "%s/v8/finance/spark?symbols=%s&%s", base(), e, rg[a->range]);
+}
+
+static void chart_done(const chart_ask *a, char *b)
+{
+    const char *sym = a->sym;
+    int range = a->range;
     chart_job *cj = calloc(1, sizeof *cj);
     cj->cap = PTS_MAX;
     cj->s.t = calloc(PTS_MAX, sizeof *cj->s.t);
     cj->s.v = calloc(PTS_MAX, sizeof *cj->s.v);
     cj->s.range = range;
-    char *b = fetch(url, 1 << 20, m, sizeof m);
     bool ok = b && parse(b, on_chart, cj);
     free(b);
     // the points with a price, in order
@@ -273,25 +289,27 @@ static void do_chart(void)
     free(cj);
 }
 
-static void do_quotes(void)
+static quote_job *quotes_url(char *url, size_t un, uint32_t *g)
 {
-    char url[1400], m[200] = "";
     quote_job *qj = calloc(1, sizeof *qj);
-    uint32_t g;
     sys_lock(mx);
-    g = list_gen;
+    *g = list_gen;
     qj->first = next_row;
     qj->count = n_items - next_row < CHUNK ? n_items - next_row : CHUNK;
-    size_t o = (size_t)snprintf(url, sizeof url, "%s/v8/finance/spark?symbols=", base());
+    size_t o = (size_t)snprintf(url, un, "%s/v8/finance/spark?symbols=", base());
     for (int i = 0; i < qj->count; i++)
     {
         char e[52];
         put_sym(e, sizeof e, syms[qj->first + i]);
-        o += (size_t)snprintf(url + o, sizeof url - o, "%s%s", i ? "," : "", e);
+        o += (size_t)snprintf(url + o, un - o, "%s%s", i ? "," : "", e);
     }
     sys_unlock(mx);
-    snprintf(url + o, sizeof url - o, "&range=1d&interval=1d");
-    char *b = fetch(url, 1 << 18, m, sizeof m);
+    snprintf(url + o, un - o, "&range=1d&interval=1d");
+    return qj;
+}
+
+static void quotes_done(quote_job *qj, uint32_t g, char *b, const char *m)
+{
     bool ok = b && parse(b, on_quotes, qj);
     free(b);
     sys_lock(mx);
@@ -328,12 +346,14 @@ static void do_quotes(void)
     free(qj);
 }
 
-static void do_tape(int region)
+static void tape_url(int region, char *url, size_t un)
 {
     static const char *const s[3] = { "%5EAEX,%5EGDAXI,%5EFTSE,%5EFCHI", "%5EGSPC,%5EDJI,%5EIXIC", "%5EN225,%5EHSI,000001.SS" };
-    char url[300], m[200];
-    snprintf(url, sizeof url, "%s/rss/2.0/headline?s=%s&region=US&lang=en-US", feeds_base(), s[region % 3]);
-    char *b = fetch(url, 1 << 19, m, sizeof m);
+    snprintf(url, un, "%s/rss/2.0/headline?s=%s&region=US&lang=en-US", feeds_base(), s[region % 3]);
+}
+
+static void tape_done(int region, char *b)
+{
     char *t = malloc(TAPE_MAX);
     t[0] = 0;
     if (b) titles(b, t, TAPE_MAX);
@@ -351,26 +371,86 @@ static void do_tape(int region)
     free(t);
 }
 
+// what is next: 1 a chart, 2 prices, 3 headlines (*region), 0 nothing
+static int next_job(int *region_out)
+{
+    uint32_t t = sys_millis();
+    sys_lock(mx);
+    bool chart = ch_asked;
+    bool quotes = n_items && (next_row || now_asked || (int32_t)(t - due) >= 0);
+    if (quotes && !next_row) { now_asked = false; if (st != MS_DONE) st = MS_BUSY; }
+    int region = tp_region;
+    bool tp = region >= 0 && (tp_have_region != region || !tp_due_set || (int32_t)(t - tp_due) >= 0);
+    sys_unlock(mx);
+    *region_out = region;
+    return chart ? 1 : quotes ? 2 : tp ? 3 : 0;
+}
+
+#ifndef __wasm__
 static int run(void *arg)
 {
     (void)arg;
     for (;;)
     {
         sys_sleep_ms(40);
-        uint32_t t = sys_millis();
-        sys_lock(mx);
-        bool chart = ch_asked;
-        bool quotes = n_items && (next_row || now_asked || (int32_t)(t - due) >= 0);
-        if (quotes && !next_row) { now_asked = false; if (st != MS_DONE) st = MS_BUSY; }
-        int region = tp_region;
-        bool tp = region >= 0 && (tp_have_region != region || !tp_due_set || (int32_t)(t - tp_due) >= 0);
-        sys_unlock(mx);
-        if (chart) do_chart();
-        else if (quotes) do_quotes();
-        else if (tp) do_tape(region);
+        int region, k = next_job(&region);
+        char url[1400], m[200] = "";
+        if (k == 1)
+        {
+            chart_ask a;
+            chart_url(&a, url, sizeof url);
+            chart_done(&a, fetch(url, 1 << 20, m, sizeof m));
+        }
+        else if (k == 2)
+        {
+            uint32_t g;
+            quote_job *qj = quotes_url(url, sizeof url, &g);
+            quotes_done(qj, g, fetch(url, 1 << 18, m, sizeof m), m);
+        }
+        else if (k == 3)
+        {
+            tape_url(region, url, sizeof url);
+            tape_done(region, fetch(url, 1 << 19, m, sizeof m));
+        }
     }
     return 0;
 }
+#else
+// one request at a time; its answer (0-terminated, a copy) to the job's *_done
+typedef struct { int kind, region; uint32_t g; chart_ask a; quote_job *qj; } web_job;
+static bool web_busy;
+
+static void web_got(void *user, int status, const char *data, size_t len, const char *e)
+{
+    web_job *w = user;
+    char m[200] = "";
+    char *b = NULL;
+    if (status == 200 && data) { b = malloc(len + 1); memcpy(b, data, len); b[len] = 0; }
+    else if (status) snprintf(m, sizeof m, "HTTP %d", status);
+    else u_copy(m, sizeof m, e && *e ? e : "no answer");
+    if (w->kind == 1) chart_done(&w->a, b);
+    else if (w->kind == 2) quotes_done(w->qj, w->g, b, m);
+    else tape_done(w->region, b);
+    free(w);
+    web_busy = false;
+}
+
+void ms_poll(void)
+{
+    if (!started || web_busy) return;
+    int region, k = next_job(&region);
+    if (!k) return;
+    web_job *w = calloc(1, sizeof *w);
+    char url[1400] = "relay:";
+    w->kind = k;
+    w->region = region;
+    if (k == 1) chart_url(&w->a, url + 6, sizeof url - 6);
+    else if (k == 2) w->qj = quotes_url(url + 6, sizeof url - 6, &w->g);
+    else tape_url(region, url + 6, sizeof url - 6);
+    web_busy = true;
+    net_fetch(url, web_got, w);
+}
+#endif
 
 // ---------------- the main thread ----------------
 void ms_init(void)
@@ -378,7 +458,9 @@ void ms_init(void)
     if (started) return;
     started = true;
     mx = sys_mutex_new();
+#ifndef __wasm__
     sys_thread_detach(sys_thread_start(run, NULL));
+#endif
 }
 
 void ms_set_list(const mk_item *it, int n)
