@@ -58,6 +58,7 @@ bool np_get(np_info *o)
     if (track) snprintf(o->title, sizeof o->title, "%s %d", base.title, track + 1);
     o->state = state;
     o->elapsed_ms = elapsed();
+    o->at = sys_millis();
     o->total_ms = total_ms;
     o->can_seek = o->can_next = o->can_prev = o->can_shuffle = o->can_repeat = true;
     o->shuffle = shuffle;

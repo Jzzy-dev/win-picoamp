@@ -5,6 +5,7 @@
 #   Open-Meteo                     /meteo/v1/forecast, /geo/v1/search
 #   news feeds                     /feeds/rss.xml, /feeds/atom.xml, /feeds/rdf.xml, /articles/<n>.html
 #
+#   LRCLIB (the lyrics)            /lrclib/api/get, /lrclib/api/search
 #   station logos                  /json/stations/byuuid/<uuid>, /json/stations/byurl, /logos/1.jpg
 #
 #   web_server.py <port> <stream url for the stations> [logo.jpg]
@@ -19,6 +20,8 @@ def station(i, name=None, codec='MP3', hls=0):
             "countrycode": "NL", "tags": "jazz,pop"}
 
 clicks = []
+LRC = ("[ar:Unit Tester]\n[00:00.50] First line\n[00:02.00] Second line, a rather long one that does not fit on one row of the page at all\n"
+       "[00:04.00][00:12.00] Café line, twice\n[00:06.00]\n[00:08.00] Last line")
 
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -27,6 +30,14 @@ class H(http.server.BaseHTTPRequestHandler):
         b = body if isinstance(body, bytes) else body.encode()
         self.send_response(200)
         self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def reply_code(self, code, body):
+        b = body.encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(b)))
         self.end_headers()
         self.wfile.write(b)
@@ -73,6 +84,26 @@ class H(http.server.BaseHTTPRequestHandler):
                            "artworkUrl100": "http://127.0.0.1:%d/art/100x100bb.jpg" % PORT}]}))
             else:
                 self.reply('{"resultCount":0,"results":[]}')
+        elif p == '/lrclib/api/get':
+            print("lrclib get", q.get('artist_name'), q.get('track_name'), q.get('album_name'), q.get('duration'), flush=True)
+            if q.get('track_name') == 'Sine Café Song' and q.get('duration') == '30':
+                self.reply(json.dumps({"id": 1, "trackName": "Sine Café Song", "artistName": "Unit Tester", "duration": 30,
+                                       "instrumental": False, "plainLyrics": "First line\nSecond line",
+                                       "syncedLyrics": LRC}))
+            else:
+                self.reply_code(404, '{"code":404,"name":"TrackNotFound","message":"Failed to find specified track"}')
+        elif p == '/lrclib/api/search':
+            t = q.get('track_name') or q.get('q', '')
+            print("lrclib search", q.get('artist_name'), t, flush=True)
+            if t == 'Fake Song':
+                # another version (plain, the wrong length) and the right one (synced)
+                self.reply(json.dumps([{"id": 2, "duration": 999, "instrumental": False, "plainLyrics": "Wrong version", "syncedLyrics": None},
+                                       {"id": 3, "duration": 200, "instrumental": False, "plainLyrics": "Fake one",
+                                        "syncedLyrics": "[00:00.00] Fake one \u00e9\n[00:05.00] Fake two\n[01:00.00] Fake three"}]))
+            elif t == 'Fake Song 2':
+                self.reply(json.dumps([{"id": 4, "duration": 200, "instrumental": True, "plainLyrics": None, "syncedLyrics": None}]))
+            else:
+                self.reply('[]')
         elif p.startswith('/art/') and LOGO:
             print("art", p, flush=True)
             self.reply(open(LOGO, 'rb').read(), 'image/jpeg')

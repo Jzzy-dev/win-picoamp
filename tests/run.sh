@@ -31,6 +31,7 @@ trap 'kill $SRV $SRV2 2>/dev/null' EXIT
 export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi PICOAMP_ITUNES=http://localhost:$WEB/itunes
 export PICOAMP_METEO=http://localhost:$WEB/meteo PICOAMP_GEO=http://localhost:$WEB/geo
 export PICOAMP_YAHOO=http://localhost:$WEB PICOAMP_YFEEDS=http://localhost:$WEB
+export PICOAMP_LRCLIB=http://localhost:$WEB/lrclib
 sleep 0.5
 printf '#EXTM3U\r\n#EXTINF:-1,Local FM\r\nhttp://localhost:%d/stream.mp3\r\n#EXTINF:-1,Old SHOUTcast\r\nhttp://localhost:%d/icy\r\n#EXTINF:-1,Via PLS\r\nhttp://localhost:%d/list.pls\r\n#EXTINF:-1,AAC\r\nhttp://localhost:%d/aac\r\n#EXTINF:-1,Live\r\nhttp://localhost:%d/mid\r\n' \
     $PORT $PORT $PORT $PORT $PORT > $T/cfg/Radio/Test.m3u
@@ -242,5 +243,23 @@ check "follow: > seeks in it" "$out" "elapsed=1[01]/200 .*title='Fake Song 2'"
 check "follow: its volume, shuffle and repeat" "$out" "vol=55 .*system=1 source='Spotify' mode=3"
 check "follow: a file here ends it" "$out" "title='Sine Café Song' .*system=0"
 [ "$(sed -n 's/^volume = //p' $T/cfg/picoamp.ini)" = "$vol_before" ] && echo "ok   follow: the player's own volume kept" || { echo "FAIL follow: the player's volume changed"; fail=1; }
+
+# the lyrics (L, from the stand-in for LRCLIB): a file's, synced (its one song, by its length), the line
+# sung now, moved with [ ]; kept (not asked again); another program's (the search: the version of its
+# length, synced), then an instrumental one
+sed -i "s|^folder = .*|folder = $PWD/$T/Music|" $T/cfg/picoamp.ini
+out=$(run "key Down; key Down; key Enter; wait 300; key L; wait 2400; shot $T/lyrics.png 3; page; key [; key [; key [; key [; page; key 0; key Esc; page")
+check "lyrics: a file's, synced, the line sung now" "$out" "lyrics state=synced lines=6 at=1 line='Second line, a rather long one"
+check "lyrics: [ takes them 2 s back" "$out" "lyrics state=synced lines=6 at=0 line='First line'"
+check "lyrics: ESC back" "$(printf '%s\n' "$out" | tail -1)" "^page 0"
+asked=$(grep -c "lrclib get Unit Tester" $T/web.log)
+out=$(run "key Down; key Down; key Enter; wait 300; key L; wait 200; page")
+check "lyrics: kept" "$out" "lyrics state=synced lines=6"
+[ "$(grep -c "lrclib get Unit Tester" $T/web.log)" = "$asked" ] && echo "ok   lyrics: not asked again" || { echo "FAIL lyrics: asked again"; fail=1; }
+export PICOAMP_FAKE_MEDIA="Spotify|Fake Song|Fake Artist|Fake Album|200"
+out=$(run "follow; wait 300; key L; wait 500; shot $T/lyrics2.png 3; page; key N; wait 700; page")
+unset PICOAMP_FAKE_MEDIA
+check "lyrics: another program's, the right version, synced" "$out" "lyrics state=synced lines=3 at=0 line='Fake one é'"
+check "lyrics: instrumental" "$out" "lyrics state=instrumental"
 
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

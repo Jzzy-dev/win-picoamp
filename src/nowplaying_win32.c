@@ -376,6 +376,7 @@ static void poll(void)
         if (end > start) n.total_ms = (int)((end - start) / 10000);
         if (e < 0) e = 0;
         n.elapsed_ms = (int)(e / 10000);
+        n.at = sys_millis();
         if (n.total_ms && n.elapsed_ms > n.total_ms) n.elapsed_ms = n.total_ms;
         rel(tl);
     }

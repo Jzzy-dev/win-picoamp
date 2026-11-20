@@ -16,6 +16,7 @@ typedef struct
     int  volume;             // 0..100
     bool muted;
     int  elapsed, total;     // seconds (total 0: unknown)
+    int  elapsed_ms;         // in the song, ms (a station: since its title came, as heard; for the lyrics)
     int  bitrate;            // kbit/s
     int  rate;               // Hz
     int  channels;

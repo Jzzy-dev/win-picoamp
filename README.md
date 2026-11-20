@@ -47,6 +47,17 @@ and the window can be any size.
     `.exe` Windows names); PicoAmp's own volume is kept for its own music.
   * Playing a file or a station in PicoAmp ends it. `PicoAmp.exe --follow` starts with it.
   * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.
+* **Lyrics (L):** the words of what plays, from [LRCLIB](https://lrclib.net), a free, open lyrics
+  database (no account, no key). Many songs have synced lyrics: the line sung now shows in yellow,
+  the ones sung in grey, the ones to come below. Songs with plain lyrics only scroll through the song,
+  or with Up/Down.
+  * A file and another program (Spotify ...) are asked by artist, title, album and length, so the
+    version is the right one. A station's song (from its title) is asked by artist and title, and is
+    timed from when its title is heard. Stations send titles a bit early or late, so `[` and `]` move
+    the words half a second, and `0` puts them right again.
+  * What was found is kept in `%APPDATA%\PicoAmp\Lyrics`. When nothing was found, that is kept for
+    a week.
+  * Not every song is there: well-known songs mostly are, rarer ones and many non-English ones not.
 * **The picture:** a 24-band spectrum analyser with falling peaks, VU meters and an oscilloscope (V).
 * **The cover (V a third time),** as PICOAMP on the MSX shows it: 80×80 pixels in MSX SCREEN 4 cells
   (two colours in every 8 pixels of a row) with five palette entries of its own for each row of cells
@@ -145,6 +156,7 @@ and the window can be any size.
 | G | Equalizer | E | Next equalizer preset |
 | Z | Full screen pictures | / or J | Search the station directory |
 | C / W / T | Clock / weather / news | ? or F1 | Help (also the **?** box in the title bar) |
+| L | Lyrics (`[` `]` their timing) | | |
 | I | Pictures and slideshow | $ | Markets |
 | F / D | Favourite add / remove | Ctrl+Up/Down | Move a favourite |
 | O | Open the station lists' folder | Q | Quit |
@@ -157,6 +169,8 @@ story. In My feeds: Enter, D, U/J move, and A adds an address.
 **Markets:** Up/Down choose, Left/Right the list, Enter the chart, I an index's members (BS back), O the
 order, U update now, 1 2 3 the region. In the chart: Left/Right the range, Up/Down the next one, T its
 headlines in the news reader, Enter/BS/ESC the list.
+**Lyrics:** Up/Down and the wheel scroll, Home follows the song again, `[` / `]` the timing -/+ 0.5 s,
+`0` puts it right, L/Esc back.
 **Equalizer:** Left/Right picks a band or the balance, Up/Down changes it, 0 resets it.
 **Pictures:** Enter shows a picture or opens a folder, Backspace the folder above (and the drives),
 Space marks, A all, G slideshow, O screensaver, R interval, U shuffle, F the screensaver's folder,

@@ -233,11 +233,11 @@ static void sys_poll(void)
 {
     np_info i;
     if (!np_get(&i)) return;
-    sys_now = i;
     sys_vol_known = i.volume >= 0;
     if (i.audio_pid != loop_pid || (!loop_ok && sys_millis() - loop_tried > 5000)) loop_open(i.audio_pid);
     int rate = loop_ok ? (int)loop_dev.sampleRate : 0;
     sys_lock(st_lock);
+    sys_now = i;
     audio_status o = st;
     st.system = true;
     st.stream = st.buffering = st.tls = false;
@@ -543,6 +543,15 @@ static int pick_next(int dir)
     return n;
 }
 
+static int64_t song_base_ms;              // a station: where its song began (station time, as heard)
+
+static int64_t elapsed_now_ms(void)
+{
+    uint64_t f = played;
+    double s = (src_rate ? (double)base_frames / src_rate : 0) + (double)f / dev_rate;
+    return (int64_t)(s * 1000.0);
+}
+
 static int elapsed_now(void)
 {
     uint64_t f = played;
@@ -760,6 +769,9 @@ static void stream_poll(void)
     {
         strm_meta_seen = si.meta_gen;
         split_stream_title(si.title);
+        // the song is heard when what is buffered now has played
+        song_base_ms = elapsed_now_ms() + (si.bitrate > 0 ? (int64_t)have * 8 / si.bitrate : 0)
+                     + (int64_t)ma_pcm_rb_available_read(&rb) * 1000 / dev_rate;
         st_changed();
     }
     if (si.station[0] && !st.album[0]) { u_copy(st.album, sizeof st.album, si.station); st_changed(); }
@@ -1097,6 +1109,16 @@ void audio_status_get(audio_status *out)
         st.elapsed = e;
     }
     else if (st.state == ST_PLAYING && src == SRC_STREAM) st.elapsed = elapsed_now();
+    if (src == SRC_FILE && st.state != ST_STOPPED) st.elapsed_ms = (int)elapsed_now_ms();
+    else if (src == SRC_STREAM && st.state == ST_PLAYING) st.elapsed_ms = (int)(elapsed_now_ms() - song_base_ms);
+    else if (src == SRC_SYSTEM)
+    {
+        int e = sys_now.elapsed_ms;
+        if (sys_now.state == NP_PLAYING) e += (int)(sys_millis() - sys_now.at);
+        if (sys_now.total_ms && e > sys_now.total_ms) e = sys_now.total_ms;
+        st.elapsed_ms = e;
+    }
+    else st.elapsed_ms = st.elapsed * 1000;
     *out = st;
     sys_unlock(st_lock);
 }

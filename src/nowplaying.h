@@ -30,6 +30,7 @@ typedef struct
     int      volume;             // the program's own in the mixer 0..100 (-1: not known)
     bool     muted;
     unsigned art_gen;            // +1 when the picture changes
+    uint32_t at;                 // sys_millis() when elapsed_ms was so
     uint32_t audio_pid;          // its process (the loopback of its sound only); 0: all of the PC
 } np_info;
 
