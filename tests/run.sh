@@ -304,6 +304,8 @@ check "msx screen: the bars, 25 a second" "$scr" "screen bars: 1[0-9][0-9] lines
 check "msx screen: the volume and mute from the MSX" "$out" "vol=40 .*muted=1"
 check "msx screen: the volume, muted, shown there" "$scr" "screen time: [0-9]* 30 a 40 1"
 check "msx screen: the words, synced, in rows of 40" "$scr" "screen words: s, 7 rows: 500 First line | 2000 Second line, a rather long one that does | 2000 not fit on one row of the page at all | 4000 Caf.x82 line, twice | 6000  | 8000 Last line | 12000 Caf.x82 line, twice"
+check "msx screen: its cover made, then fetched" "$scr" "screen cover made: [0-9]* (fetched: [1-9][0-9]* bytes)"
+check "msx screen: the format line" "$scr" "screen format: [0-9]*K 44.1KHZ ST"
 check "msx screen: seeking to a time from the MSX" "$scr" "screen time: 1[01][0-9][0-9][0-9] 30"
 check "msx screen: pause from the MSX" "$out" "state=2 .*title='Sine Café Song'"
 

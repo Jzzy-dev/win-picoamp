@@ -14,6 +14,8 @@ enum
 enum { MOUSE_LEFT = 1, MOUSE_RIGHT = 2, MOUSE_WHEEL_UP = 4, MOUSE_WHEEL_DOWN = 5, MOUSE_DRAG = 6, MOUSE_UP = 7 };
 
 void ui_init(void);
+#include "audio.h"
+void ui_format_of(const audio_status *s, char *out, size_t n);   // the format line of a status
 void ui_frame(void);                      // once a frame: read the player, draw
 void ui_key(int key);
 void ui_mouse(int x, int y, int button);  // x, y in the 256 x 192 picture

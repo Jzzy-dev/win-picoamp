@@ -62,6 +62,10 @@ if SCREEN:
                 print('screen song:', l[1:].rstrip(b'\n').decode('latin-1').split('\t'))
             elif l[:1] == b'T':
                 print('screen time:', l[1:].decode().strip())
+            elif l[:1] == b'C':
+                print('screen cover made:', l[1:].decode().strip(), '(fetched: %d bytes)' % len(get('/cover.jpg')[2]))
+            elif l[:1] == b'F':
+                print('screen format:', l[1:].decode('latin-1').strip())
             elif l[:1] == b'L':
                 if l[1:2] == b'.':
                     print('screen words: %s, %d rows: %s' % (words[0] if words else '?', len(words) - 1, ' | '.join(words[1:])))

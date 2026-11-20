@@ -453,6 +453,7 @@ static int msx_text(char *o, int n, const char *utf8)
 // the MSX's screen (X-PicoAmp: 2): no sound, what the PC's player shows, as lines
 //   V<24 levels, '0' + 0..31><VU left, right><64 scope samples, ' ' + (s + 128) / 3>   every 40 ms
 //   T <elapsed ms> <length s> <p playing | a paused | s stopped> <volume> <muted 0/1> every 500 ms and when it changes
+//   C<n>   the cover of what plays is made (n: +1 each time): fetch /cover.jpg; F<text> the format line (21 chars)
 //   S<artist> TAB <title> TAB <album>                                               when the song changes
 //   L<s|p|i|n|l|->, R<ms, -1 not synced> TAB <a row of words, 40 characters>..., L.  the words, when they change
 static void screen(sock_t s)
@@ -470,11 +471,38 @@ static void screen(sock_t s)
     int last_state = -1, last_vol = -1;
     unsigned ly_sent = ly_gen - 1;
     uint32_t last_t = 0;
+    unsigned cover_sent = 0;
+    bool cover_any = false;
+    char fmt_sent[40] = "\x01";
     while (running)
     {
         audio_status st;
         audio_status_get(&st);
         uint32_t now = sys_millis();
+        // its cover is made (a new one, or none): the MSX fetches /cover.jpg then (not at the song: it may be the last one still)
+        sys_lock(lock);
+        unsigned cg = cover_n;
+        sys_unlock(lock);
+        if (!cover_any || cg != cover_sent)
+        {
+            n = snprintf(line, sizeof line, "C%u\n", cg);
+            if (!send_all(s, line, (size_t)n)) break;
+            cover_sent = cg;
+            cover_any = true;
+        }
+        // the format line, as this PC shows it
+        {
+            char f[64], m[64];
+            ui_format_of(&st, f, sizeof f);
+            msx_text(m, sizeof m, f);
+            m[21] = 0;
+            if (strcmp(m, fmt_sent))
+            {
+                u_copy(fmt_sent, sizeof fmt_sent, m);
+                n = snprintf(line, sizeof line, "F%s\n", m);
+                if (!send_all(s, line, (size_t)n)) break;
+            }
+        }
         // the song
         char a[200], t[200], al[200];
         msx_text(a, sizeof a, st.artist);

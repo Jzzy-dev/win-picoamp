@@ -370,8 +370,14 @@ static void draw_static(void)
 
 static void upper(char *s) { for (; *s; s++) if (*s >= 'a' && *s <= 'z') *s -= 32; }
 
-static void fmt_format(char *out, size_t n)
+static void fmt_format(char *out, size_t n) { ui_format_of(&st, out, n); }
+
+// the format line ("128K 44.1KHZ ST HTTP", "SPOTIFY 48.0KHZ", "BUFFERING 40%") of a status (also the MSX link's)
+void ui_format_of(const audio_status *sp, char *out, size_t n)
 {
+#pragma push_macro("st")
+#undef st
+#define st (*sp)
     if (st.system)
     {
         // another program: its name, and the rate of the sound the bars hear
@@ -388,6 +394,7 @@ static void fmt_format(char *out, size_t n)
     int r10 = st.rate / 10;
     int o = snprintf(out, n, "%dK %d.%dKHZ %s", st.bitrate, r10 / 100, (r10 % 100) / 10, st.channels == 1 ? "MO" : "ST");
     if (st.stream && o > 0 && (size_t)o < n) snprintf(out + o, n - (size_t)o, st.tls ? " HTTPS" : " HTTP");
+#pragma pop_macro("st")
 }
 
 static void draw_info(void)
