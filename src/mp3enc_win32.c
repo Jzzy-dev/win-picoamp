@@ -71,11 +71,36 @@ static IMFMediaType *mp3_type(int rate, int ch, int kbps)
     return t;
 }
 
+// the output type made from an MPEGLAYER3WAVEFORMAT (Microsoft's other way to say it)
+static IMFMediaType *mp3_type_wfx(int rate, int ch, int kbps, int flags)
+{
+    UINT8 w[30];
+    memset(w, 0, sizeof w);
+    unsigned avg = (unsigned)(kbps * 1000 / 8), bs = (unsigned)(144 * kbps * 1000 / rate);
+    w[0] = 0x55;                                        // WAVE_FORMAT_MPEGLAYER3
+    w[2] = (UINT8)ch;
+    w[4] = (UINT8)rate; w[5] = (UINT8)(rate >> 8); w[6] = (UINT8)(rate >> 16);
+    w[8] = (UINT8)avg; w[9] = (UINT8)(avg >> 8); w[10] = (UINT8)(avg >> 16);
+    w[12] = 1;                                          // nBlockAlign
+    w[16] = 12;                                         // cbSize
+    w[18] = 1;                                          // wID: MPEG
+    w[20] = (UINT8)flags;                               // fdwFlags: 0 padding as ISO, 1 on, 2 off
+    w[24] = (UINT8)bs; w[25] = (UINT8)(bs >> 8);        // nBlockSize
+    w[26] = 1;                                          // nFramesPerBlock
+    w[28] = (UINT8)1393; w[29] = (UINT8)(1393 >> 8);    // nCodecDelay
+    IMFMediaType *t = NULL;
+    if (FAILED(MFCreateMediaType(&t))) return NULL;
+    if (FAILED(MFInitMediaTypeFromWaveFormatEx(t, (const WAVEFORMATEX *)w, sizeof w))) { IMFMediaType_Release(t); return NULL; }
+    return t;
+}
+
 // the output types the encoder offers: the one of this rate and channels nearest kbps
+static int offered;
 static bool pick_output(mp3enc *e, int kbps)
 {
     IMFMediaType *best = NULL;
     int best_d = 1 << 30;
+    offered = 0;
     for (DWORD i = 0;; i++)
     {
         IMFMediaType *mt = NULL;
@@ -84,6 +109,7 @@ static bool pick_output(mp3enc *e, int kbps)
         IMFMediaType_GetUINT32(mt, &MF_MT_AUDIO_SAMPLES_PER_SECOND, &r);
         IMFMediaType_GetUINT32(mt, &MF_MT_AUDIO_NUM_CHANNELS, &c);
         IMFMediaType_GetUINT32(mt, &MF_MT_AUDIO_AVG_BYTES_PER_SECOND, &b);
+        offered++;
         int d = abs((int)b * 8 / 1000 - kbps);
         if ((int)r == e->rate && (int)c == e->ch && d < best_d)
         {
@@ -127,15 +153,26 @@ mp3enc *mp3enc_open(int rate, int channels, int kbps)
 
     // the output first (as Microsoft's MP3 encoder wants it), then the input; else the input first, then the
     // output it offers (another encoder)
-    IMFMediaType *in = pcm_type(rate, channels), *o = mp3_type(rate, channels, kbps);
+    IMFMediaType *in = pcm_type(rate, channels), *o = NULL;
     HRESULT h1 = S_OK, h2 = S_OK, h3 = S_OK;
-    bool ok = o && SUCCEEDED(h1 = IMFTransform_SetOutputType(e->t, 0, o, 0)) && SUCCEEDED(h2 = IMFTransform_SetInputType(e->t, 0, in, 0));
+    int way = 0, offered_first = 0;
+    // 1: the output types it offers by itself; 2, 3, 4: made from the format structure (padding as ISO, off, on);
+    // 5: made from the attributes; 6: the input first, then what it offers
+    bool ok = pick_output(e, kbps) && SUCCEEDED(h2 = IMFTransform_SetInputType(e->t, 0, in, 0));
+    offered_first = offered;
+    for (way = 2; !ok && way <= 5; way++)
+    {
+        if (o) IMFMediaType_Release(o);
+        o = way == 5 ? mp3_type(rate, channels, kbps) : mp3_type_wfx(rate, channels, kbps, way == 2 ? 0 : way == 3 ? 2 : 1);
+        ok = o && SUCCEEDED(h1 = IMFTransform_SetOutputType(e->t, 0, o, 0)) && SUCCEEDED(h2 = IMFTransform_SetInputType(e->t, 0, in, 0));
+    }
     if (!ok) ok = SUCCEEDED(h3 = IMFTransform_SetInputType(e->t, 0, in, 0)) && pick_output(e, kbps);
     if (in) IMFMediaType_Release(in);
     if (o) IMFMediaType_Release(o);
     if (!ok)
     {
-        snprintf(err, sizeof err, "The MP3 encoder does not take %d Hz (%08lX %08lX %08lX)", rate, (unsigned long)h1, (unsigned long)h2, (unsigned long)h3);
+        snprintf(err, sizeof err, "The MP3 encoder does not take %d Hz (%08lX %08lX %08lX, %d %d offered)", rate,
+                 (unsigned long)h1, (unsigned long)h2, (unsigned long)h3, offered_first, offered);
         IMFTransform_Release(e->t);
         free(e);
         return NULL;
