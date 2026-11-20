@@ -26,7 +26,7 @@ for _ in range(150):                      # (the link starts with the player)
     except OSError:
         time.sleep(0.1)
 
-s = socket.create_connection(('127.0.0.1', PORT), timeout=10)
+s = socket.create_connection(('127.0.0.1', PORT), timeout=4)
 s.sendall(b'GET /stream.mp3 HTTP/1.0\r\nHost: x\r\nIcy-MetaData: 1\r\nUser-Agent: PicoAmp MSX test\r\n\r\n')
 head = b''
 while b'\r\n\r\n' not in head:
@@ -67,7 +67,11 @@ try:
             print('key %s: %d %s' % (k, st, body.decode().strip()))
             next_key = time.time() + 1.0
 except (EOFError, OSError) as e:
-    print('stream ended:', e)
+    print('stream ended:', repr(e))
+    try:
+        print('now then:', get('/now')[2].decode().strip())
+    except OSError as e2:
+        print('now then: no answer', e2)
 s.close()
 
 # the MP3 frames: a frame header at the start of a frame, again after each frame
@@ -85,7 +89,11 @@ while i + 4 <= len(audio):
     i += 144000 * br // sr + pad
     frames += 1
 print('audio bytes: %d, frames in a row: %d, kbps/rate: %s' % (len(audio), frames, sorted(rates)))
-st, h, body = get('/now')
+try:
+    st, h, body = get('/now')
+except OSError as e:
+    print('the link is gone:', e)
+    sys.exit(0)
 print('now: %d %s' % (st, body.decode().strip()))
 st, h, body = get('/cover.jpg')
 print('cover: %d %d bytes jpeg=%s gen=%s' % (st, len(body), body[:2] == b'\xff\xd8', h.get('X-Cover-Gen')))

@@ -100,10 +100,11 @@ mp3enc *mp3enc_open(int rate, int channels, int kbps)
     MFT_REGISTER_TYPE_INFO out = { MFMediaType_Audio, MFAudioFormat_MP3 };
     IMFActivate **acts = NULL;
     UINT32 n = 0;
-    if (FAILED(MFTEnumEx(MFT_CATEGORY_AUDIO_ENCODER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER,
-                         NULL, &out, &acts, &n)) || !n)
+    HRESULT he = MFTEnumEx(MFT_CATEGORY_AUDIO_ENCODER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER,
+                           NULL, &out, &acts, &n);
+    if (FAILED(he) || !n)
     {
-        snprintf(err, sizeof err, "This PC has no MP3 encoder");
+        snprintf(err, sizeof err, "This PC has no MP3 encoder (%08lX, %u)", (unsigned long)he, (unsigned)n);
         if (acts) CoTaskMemFree(acts);
         return NULL;
     }
@@ -120,17 +121,18 @@ mp3enc *mp3enc_open(int rate, int channels, int kbps)
 
     // the input first, then the output it offers; else the output first
     IMFMediaType *in = pcm_type(rate, channels), *o = NULL;
-    bool ok = SUCCEEDED(IMFTransform_SetInputType(e->t, 0, in, 0)) && pick_output(e, kbps);
+    HRESULT h1 = IMFTransform_SetInputType(e->t, 0, in, 0), h2 = S_OK, h3 = S_OK;
+    bool ok = SUCCEEDED(h1) && pick_output(e, kbps);
     if (!ok)
     {
         o = mp3_type(rate, channels, kbps);
-        ok = o && SUCCEEDED(IMFTransform_SetOutputType(e->t, 0, o, 0)) && SUCCEEDED(IMFTransform_SetInputType(e->t, 0, in, 0));
+        ok = o && SUCCEEDED(h2 = IMFTransform_SetOutputType(e->t, 0, o, 0)) && SUCCEEDED(h3 = IMFTransform_SetInputType(e->t, 0, in, 0));
     }
     if (in) IMFMediaType_Release(in);
     if (o) IMFMediaType_Release(o);
     if (!ok)
     {
-        snprintf(err, sizeof err, "The MP3 encoder does not take %d Hz", rate);
+        snprintf(err, sizeof err, "The MP3 encoder does not take %d Hz (%08lX %08lX %08lX)", rate, (unsigned long)h1, (unsigned long)h2, (unsigned long)h3);
         IMFTransform_Release(e->t);
         free(e);
         return NULL;

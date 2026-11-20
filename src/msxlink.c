@@ -67,6 +67,7 @@ static char         url[96], err[160];
 static sys_mutex   *lock;                // the counts, the cover
 static volatile int clients, listeners;
 static int          listeners_seen = -1;
+static char         err_shown[160];
 
 // the PCM ring (audio threads -> encoder)
 static sys_mutex   *pcm_lock;
@@ -140,6 +141,7 @@ static int enc_main(void *arg)
         {
             e = mp3enc_open(RATE, 2, kbps);
             if (!e) { failed = true; snprintf(err, sizeof err, "MSX link: %s", mp3enc_error()); continue; }
+            err[0] = 0;
             last_sound = 0;
             sil_t = sys_millis();
         }
@@ -289,6 +291,7 @@ static uint8_t *cover_for_msx(const uint8_t *data, size_t len, size_t *out_len)
 void msxlink_tick(void)
 {
     if (!running) return;
+    if (strcmp(err, err_shown)) { u_copy(err_shown, sizeof err_shown, err); if (err[0]) ui_note(err, true); }
     if (listeners != listeners_seen)
     {
         if (listeners_seen >= 0 && listeners > listeners_seen) ui_note("The MSX listens", false);
@@ -501,10 +504,12 @@ static int client_main(void *arg)
         unsigned cg = cover_n;
         bool hc = cover_jpg != NULL;
         sys_unlock(lock);
+        char e[400];
+        json_str(e, sizeof e, err);
         int n = snprintf(b, sizeof b, "{\"state\":\"%s\",\"title\":%s,\"artist\":%s,\"album\":%s,\"source\":%s,"
-                                      "\"elapsed\":%d,\"total\":%d,\"cover\":%u,\"has_cover\":%s,\"listeners\":%d}\n",
+                                      "\"elapsed\":%d,\"total\":%d,\"cover\":%u,\"has_cover\":%s,\"listeners\":%d,\"error\":%s}\n",
                          st.state == ST_PLAYING ? "playing" : st.state == ST_PAUSED ? "paused" : "stopped",
-                         t, a, al, src, st.elapsed, st.total, cg, hc ? "true" : "false", listeners);
+                         t, a, al, src, st.elapsed, st.total, cg, hc ? "true" : "false", listeners, e);
         send_text(s, "200 OK", "application/json", b, (size_t)n, NULL);
     }
     else if (!strcmp(p0, "/cover.jpg"))

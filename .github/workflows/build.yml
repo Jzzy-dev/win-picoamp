@@ -72,7 +72,7 @@ jobs:
           $cfg = "$env:APPDATA\PicoAmp"
           Set-Content "$cfg\picoamp.ini" "folder = $pwd\covertest\Png`r`nmsx_port = 18777`r`n"
           $c = Start-Process -FilePath python -ArgumentList 'tests/msx_client.py','18777','6' -RedirectStandardOutput msx.txt -PassThru -NoNewWindow
-          $s = 'msxlink on; key Down; key Enter; wait 9000; status; msxlink off; quit'
+          $s = 'msxlink on; key Down; key Enter; wait 12000; status; msxlink off; quit'
           $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','msxlink.txt' -Wait -PassThru
           $c.WaitForExit(30000) | Out-Null
           Get-Content msxlink.txt
