@@ -27,7 +27,7 @@
 #include "util.h"
 
 // ---------------- COM by vtable places ----------------
-typedef void *HSTR;
+typedef void *hstr_t;
 #define VT(p) (*(void ***)(p))
 typedef HRESULT (WINAPI *f_ptr)(void *, void **);
 typedef HRESULT (WINAPI *f_i32)(void *, INT32 *);
@@ -56,10 +56,10 @@ static const GUID IID_SimpleVol   = { 0x87CE5498, 0x68D6, 0x44E5, { 0x92, 0x15, 
 // combase.dll, shcore.dll
 static HRESULT (WINAPI *pRoInitialize)(int);
 static void    (WINAPI *pRoUninitialize)(void);
-static HRESULT (WINAPI *pRoGetActivationFactory)(HSTR, const GUID *, void **);
-static HRESULT (WINAPI *pWindowsCreateString)(const WCHAR *, UINT32, HSTR *);
-static HRESULT (WINAPI *pWindowsDeleteString)(HSTR);
-static const WCHAR *(WINAPI *pWindowsGetStringRawBuffer)(HSTR, UINT32 *);
+static HRESULT (WINAPI *pRoGetActivationFactory)(hstr_t, const GUID *, void **);
+static HRESULT (WINAPI *pWindowsCreateString)(const WCHAR *, UINT32, hstr_t *);
+static HRESULT (WINAPI *pWindowsDeleteString)(hstr_t);
+static const WCHAR *(WINAPI *pWindowsGetStringRawBuffer)(hstr_t, UINT32 *);
 static HRESULT (WINAPI *pCreateStreamOverRandomAccessStream)(void *, const GUID *, void **);
 
 static bool load_api(void)
@@ -85,7 +85,7 @@ static bool load_api(void)
 static void get_str(void *o, int slot, char *out, size_t n)
 {
     out[0] = 0;
-    HSTR h = NULL;
+    hstr_t h = NULL;
     if (!o || FAILED(((f_ptr)VT(o)[slot])(o, &h)) || !h) return;
     UINT32 len = 0;
     const WCHAR *w = pWindowsGetStringRawBuffer(h, &len);
@@ -483,7 +483,7 @@ static int np_main(void *arg)
     (void)arg;
     bool ro = SUCCEEDED(pRoInitialize(1));                   // RO_INIT_MULTITHREADED
     static const WCHAR cls[] = L"Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager";
-    HSTR h = NULL;
+    hstr_t h = NULL;
     void *statics = NULL;
     if (SUCCEEDED(pWindowsCreateString(cls, (UINT32)(sizeof cls / sizeof cls[0] - 1), &h)))
     {
