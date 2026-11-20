@@ -47,6 +47,7 @@ typedef int sock_t;
 #include "sys.h"
 #include "util.h"
 #include "tjpgd.h"
+#include "lyrics.h"
 
 #define RATE        44100
 #define PCM_FRAMES  (2 * 96000)          // the PCM ring: 2 s at 96 kHz
@@ -68,6 +69,9 @@ static sys_mutex   *lock;                // the counts, the cover
 static volatile int clients, listeners, screens;
 static int          listeners_seen = -1, screens_seen = -1;
 static viz_data     snap;                   // the bars as the screen shows them (the screen's thread copies them)
+static char        *ly_block;               // the words for the MSX's screen: "L<state>\n" rows "L.\n" (lock)
+static unsigned     ly_gen;
+static uint32_t     ly_at;
 static char         err_shown[160];
 
 // the PCM ring (audio threads -> encoder)
@@ -294,6 +298,8 @@ static uint8_t *cover_for_msx(const uint8_t *data, size_t len, int mw, int mh, b
     return j;
 }
 
+static char *lyrics_block(void);
+
 void msxlink_tick(void)
 {
     if (!running) return;
@@ -313,6 +319,20 @@ void msxlink_tick(void)
     sys_lock(lock);
     snap = ui_viz;
     sys_unlock(lock);
+    if (screens && sys_millis() - ly_at >= 250)
+    {
+        // the words of what plays (looked for as the lyrics page does), for the MSX's screen
+        ly_at = sys_millis();
+        audio_status st;
+        audio_status_get(&st);
+        if (st.state == ST_STOPPED && !st.title[0]) lyrics_want("", "", "", 0);
+        else lyrics_want(st.artist, st.title, st.stream ? "" : st.album, st.stream ? 0 : st.total);
+        char *b = lyrics_block();
+        sys_lock(lock);
+        if (b && (!ly_block || strcmp(b, ly_block))) { free(ly_block); ly_block = b; b = NULL; ly_gen++; }
+        sys_unlock(lock);
+        free(b);
+    }
     ui_cover_follow();                      // (the cover of what plays, also when the page does not show it)
     unsigned g = cover_gen();
     if (g == cover_seen || cover_state() == COVER_MAKING) return;
@@ -434,6 +454,7 @@ static int msx_text(char *o, int n, const char *utf8)
 //   V<24 levels, '0' + 0..31><VU left, right><64 scope samples, ' ' + (s + 128) / 3>   every 40 ms
 //   T <elapsed ms> <length s> <p playing | a paused | s stopped> <volume> <muted 0/1> every 500 ms and when it changes
 //   S<artist> TAB <title> TAB <album>                                               when the song changes
+//   L<s|p|i|n|l|->, R<ms, -1 not synced> TAB <a row of words, 40 characters>..., L.  the words, when they change
 static void screen(sock_t s)
 {
     char host[64], h[300];
@@ -447,6 +468,7 @@ static void screen(sock_t s)
     sys_unlock(lock);
     char song[700] = "\x01", line[800];
     int last_state = -1, last_vol = -1;
+    unsigned ly_sent = ly_gen - 1;
     uint32_t last_t = 0;
     while (running)
     {
@@ -475,6 +497,21 @@ static void screen(sock_t s)
             last_vol = vm;
             last_t = now;
         }
+        // the words, when they change
+        if (ly_sent != ly_gen)
+        {
+            sys_lock(lock);
+            char *b = ly_block ? strdup(ly_block) : NULL;
+            unsigned g = ly_gen;
+            sys_unlock(lock);
+            if (b)
+            {
+                bool ok = send_all(s, b, strlen(b));
+                free(b);
+                if (!ok) break;
+                ly_sent = g;
+            }
+        }
         // the bars
         viz_data v;
         sys_lock(lock);
@@ -493,6 +530,50 @@ static void screen(sock_t s)
     sys_lock(lock);
     screens--;
     sys_unlock(lock);
+}
+
+// the words as the MSX shows them: rows of 40 characters at most (cut at a space), each with its line's time
+static char *lyrics_block(void)
+{
+    int ls = lyrics_state();
+    char c = ls == LY_SYNCED ? 's' : ls == LY_PLAIN ? 'p' : ls == LY_INSTRUMENTAL ? 'i' : ls == LY_NOT_FOUND || ls == LY_FAILED ? 'n'
+           : ls == LY_LOADING ? 'l' : '-';
+    size_t cap = 256, n = 0;
+    char *b = malloc(cap);
+    if (!b) return NULL;
+    n += (size_t)snprintf(b, cap, "L%c\n", c);
+    int lines = (c == 's' || c == 'p') ? lyrics_count() : 0;
+    for (int i = 0; i < lines; i++)
+    {
+        int ms;
+        const char *t = lyrics_line(i, &ms);
+        char m[400];
+        int len = msx_text(m, sizeof m, t), off = 0;
+        do
+        {
+            int take = len - off;
+            if (take > 40)
+            {
+                take = 40;
+                int sp = take;
+                while (sp > 0 && m[off + sp] != ' ') sp--;
+                if (sp > 0) take = sp;
+            }
+            if (n + (size_t)take + 32 > cap)
+            {
+                cap = cap * 2 + (size_t)take + 64;
+                char *nb = realloc(b, cap);
+                if (!nb) { free(b); return NULL; }
+                b = nb;
+            }
+            n += (size_t)snprintf(b + n, cap - n, "R%d\t%.*s\n", c == 's' ? ms : -1, take, m + off);
+            off += take;
+            while (off < len && m[off] == ' ') off++;
+        } while (off < len);
+    }
+    if (n + 4 > cap) { char *nb = realloc(b, n + 4); if (!nb) { free(b); return NULL; } b = nb; }
+    memcpy(b + n, "L.\n", 4);
+    return b;
 }
 
 static void json_str(char *o, size_t n, const char *s)

@@ -57,7 +57,8 @@ and the window can be any size.
     * `/stream.mp3`: the MSX plays the sound (the MSX as a speaker, a few seconds behind).
     * `/screen`: the MSX as this PC's **screen and remote**: no sound there; the song, its time and state, the
       cover and the bars as this PC shows them (25 times a second, in step with what you hear here), and
-      the keys back.
+      the keys back. The lyrics go along too (the same as the L page here finds): **L** on the MSX shows them,
+      the line sung now lit, as here.
   * As a speaker, the MSX hears it as an internet radio station: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of
     what is heard here, with the song in its titles; silence while nothing plays, so the station stays.
   * The MSX's keys come back here (`/cmd`): SPACE, N, P (pause, next, previous), `,` `.` (seeking), H and R

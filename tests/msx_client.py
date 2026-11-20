@@ -46,6 +46,7 @@ if SCREEN:
     t0 = time.time()
     nv = 0
     lit = 0
+    words = []
     keys = list(KEYS)
     next_key = t0 + 1.0
     try:
@@ -61,6 +62,14 @@ if SCREEN:
                 print('screen song:', l[1:].rstrip(b'\n').decode('latin-1').split('\t'))
             elif l[:1] == b'T':
                 print('screen time:', l[1:].decode().strip())
+            elif l[:1] == b'L':
+                if l[1:2] == b'.':
+                    print('screen words: %s, %d rows: %s' % (words[0] if words else '?', len(words) - 1, ' | '.join(words[1:])))
+                else:
+                    words = [l[1:2].decode()]
+            elif l[:1] == b'R':
+                ms, t = l[1:].rstrip(b'\n').split(b'\t', 1)
+                words.append('%s %s' % (ms.decode(), t.decode('latin-1').encode('unicode_escape').decode()))
             if keys and time.time() >= next_key:
                 k = keys.pop(0)
                 print('key %s: %d' % (k, get('/cmd?k=' + k)[0]))
