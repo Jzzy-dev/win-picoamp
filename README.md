@@ -48,6 +48,19 @@ and the window can be any size.
   * Playing a file or a station in PicoAmp ends it, and pauses the program if it plays: the new
     music takes over. `PicoAmp.exe --follow` starts with it.
   * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.
+* **The MSX link (K):** PicoAmp on the MSX ([msx-picoplay-picoamp](https://github.com/Jzzy-dev/msx-picoplay-picoamp),
+  engine 0.18) plays what this PC plays: Spotify (or another player it follows), or PicoAmp's own files and
+  stations. K turns it on and shows the address to put in the MSX's favourites (`RADIOFAV.M3U` on its card),
+  e.g. `http://192.168.1.20:8765/stream.mp3`; Windows asks once whether PicoAmp may take connections (allow
+  private networks).
+  * The MSX hears it as an internet radio station: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of
+    what is heard here, with the song in its titles; silence while nothing plays, so the station stays.
+  * The MSX's SPACE, N and P come back here (`/cmd`): pause, next and previous, also for Spotify.
+  * The cover goes to the MSX as it wants it: 80 × 80, baseline JPEG (`/cover.jpg`).
+  * `/now` says what plays (JSON); `/picoamp.m3u` is a station list with the stream.
+  * The MSX plays a few seconds behind (its buffer): turn this PC's speakers down. PicoAmp's own mute (M)
+    mutes only this PC: the MSX still gets the sound.
+  * `[msx]` in `picoamp.ini`: `msx_link`, `msx_port` (8765), `msx_kbps` (96, 112, 128, 160, 192).
 * **Lyrics (L):** the words of what plays, from [LRCLIB](https://lrclib.net), a free, open lyrics
   database (no account, no key). Many songs have synced lyrics: the line sung now shows in yellow,
   the ones sung in grey, the ones to come below. Songs with plain lyrics only scroll through the song,
@@ -157,7 +170,7 @@ and the window can be any size.
 | G | Equalizer | E | Next equalizer preset |
 | Z | Full screen pictures | / or J | Search the station directory |
 | C / W / T | Clock / weather / news | ? or F1 | Help (also the **?** box in the title bar) |
-| L | Lyrics (`[` `]` their timing) | | |
+| L | Lyrics (`[` `]` their timing) | K | The MSX link on / off |
 | I | Pictures and slideshow | $ | Markets |
 | F / D | Favourite add / remove | Ctrl+Up/Down | Move a favourite |
 | O | Open the station lists' folder | Q | Quit |

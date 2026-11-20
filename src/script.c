@@ -94,7 +94,8 @@ bool script_step(void)
             fprintf(out, "%s\n", d);
             free(d);
         }
-        else if (!strcmp(cmd, "follow")) audio_follow_system();      // another program's music (Spotify ...)
+        else if (!strcmp(cmd, "follow")) audio_follow_system();
+        else if (!strcmp(cmd, "msxlink")) ui_msx_link(strcmp(a, "off") != 0);     // msxlink on / off      // another program's music (Spotify ...)
         else if (!strcmp(cmd, "where")) fprintf(out, "settings %s\n", sys_config_dir());
         else if (!strcmp(cmd, "quit")) { cur = NULL; fflush(out); return false; }
         else fprintf(out, "unknown command %s\n", cmd);

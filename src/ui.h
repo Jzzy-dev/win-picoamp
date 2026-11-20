@@ -21,6 +21,7 @@ void ui_drop(const char *const *paths, int n);   // files dropped on the window
 void ui_message(const char *text, bool error);
 bool ui_quit_requested(void);
 void ui_save_state(void);                 // into cfg before it is saved
+void ui_msx_link(bool on);                // K: the MSX link on / off (msxlink.h)
 // for the scripts: the list (path, entries) or what the page shows, as text (malloc'd)
 char *ui_describe(bool the_list);
 

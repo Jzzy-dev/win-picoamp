@@ -13,7 +13,7 @@ VERSION  ?= 0.1.0
 
 COMMON   = src/gfx.c src/ui.c src/fullscreen.c src/clock.c src/weather.c src/wxsvc.c src/news.c src/newsfeed.c src/audio.c src/viz.c src/eq.c src/stream.c src/net.c \
            src/library.c src/radiodir.c src/json.c src/config.c src/tags.c src/aacdec.c src/sys.c src/util.c src/png.c src/script.c src/miniaudio_impl.c \
-           src/cover.c src/pva_cover.c src/logo.c src/defaults.c src/picture.c src/pics.c src/markets.c src/mktsvc.c src/markets_cat.c src/lyrics.c src/lyricspage.c
+           src/cover.c src/pva_cover.c src/logo.c src/defaults.c src/picture.c src/pics.c src/markets.c src/mktsvc.c src/markets_cat.c src/lyrics.c src/lyricspage.c src/msxlink.c src/jpegenc.c
 HEADERS  = $(wildcard src/*.h)
 CFLAGS   = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
            -Ithird_party/miniaudio -Ithird_party/tjpgd -DPICOAMP_VERSION=\"$(VERSION)\"
@@ -37,7 +37,7 @@ build/picoamp.res.o: res/picoamp.rc res/picoamp.ico res/picoamp.manifest | build
 build/tjpgd.win.o: third_party/tjpgd/tjpgd.c | build
 	$(WINCC) -O2 -w -Ithird_party/tjpgd -c $< -o $@
 
-WINOBJ = $(patsubst src/%.c,build/%.win.o,$(COMMON) src/main_win32.c src/nowplaying_win32.c) build/tjpgd.win.o build/picoamp.res.o
+WINOBJ = $(patsubst src/%.c,build/%.win.o,$(COMMON) src/main_win32.c src/nowplaying_win32.c src/mp3enc_win32.c) build/tjpgd.win.o build/picoamp.res.o
 
 build/PicoAmp.exe: $(WINOBJ)
 	$(WINCC) -o $@ $(WINOBJ) -mwindows -municode -static \
@@ -53,7 +53,7 @@ build/miniaudio_impl.host.o: src/miniaudio_impl.c | build
 build/tjpgd.host.o: third_party/tjpgd/tjpgd.c | build
 	$(HOSTCC) -O2 -w -Ithird_party/tjpgd -c $< -o $@
 
-HOSTOBJ = $(patsubst src/%.c,build/%.host.o,$(COMMON) src/main_host.c src/nowplaying_host.c) build/tjpgd.host.o
+HOSTOBJ = $(patsubst src/%.c,build/%.host.o,$(COMMON) src/main_host.c src/nowplaying_host.c src/mp3enc_host.c) build/tjpgd.host.o
 
 build/picoamp_test: $(HOSTOBJ)
 	$(HOSTCC) -o $@ $(HOSTOBJ) -lpthread -lm -ldl

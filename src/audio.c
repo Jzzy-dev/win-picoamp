@@ -82,6 +82,7 @@ static bool         muted;
 static int          own_mode;             // the player's shuffle / repeat (another program's while it is followed)
 
 // another program's music (SRC_SYSTEM): what it says, and the PC's sound for the bars
+static audio_tap_fn volatile tap;         // the MSX link
 static volatile bool following;           // (read by the screen's calls)
 static volatile bool sys_vol_known;       // the program's volume in the mixer is known
 static ma_device    loop_dev;
@@ -122,6 +123,8 @@ static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
     if (done)
     {
         viz_feed(o, done, dev_rate);
+        audio_tap_fn t = tap;
+        if (t) t(o, done, dev_rate);
         int gl = gain_l, gr = gain_r;
         for (ma_uint32 i = 0; i < done; i++)
         {
@@ -174,7 +177,12 @@ static void set_error(const char *msg)
 static void loop_cb(ma_device *d, void *out, const void *in, ma_uint32 frames)
 {
     (void)out;
-    if (in && frames && following) viz_feed(in, frames, d->sampleRate);
+    if (in && frames && following)
+    {
+        viz_feed(in, frames, d->sampleRate);
+        audio_tap_fn t = tap;
+        if (t) t(in, frames, d->sampleRate);
+    }
 }
 
 static void loop_close(void)
@@ -1017,6 +1025,7 @@ void audio_play_url(const char *url, const char *name)
 
 static void simple(int type, int arg) { cmd_t c = { type, arg, NULL, NULL, NULL, 0 }; post(c); }
 void audio_follow_system(void) { simple(C_SYSTEM, 0); }
+void audio_set_tap(audio_tap_fn fn) { tap = fn; }
 bool audio_system_supported(void) { return np_supported(); }
 void audio_toggle_pause(void) { simple(C_PAUSE, 0); }
 void audio_stop(void)         { simple(C_STOP, 0); }

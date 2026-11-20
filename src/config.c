@@ -27,6 +27,8 @@ static void defaults(void)
     cfg.keep_covers = 200;
     cfg.pic_interval = 10;
     cfg.mk_refresh = 60;
+    cfg.msx_port = 8765;
+    cfg.msx_kbps = 160;
 }
 
 static const char *ini_path(void)
@@ -121,8 +123,13 @@ void config_load(void)
         else if (!u_stricmp(k, "interval")) cfg.pic_interval = atoi(v);
         else if (!u_stricmp(k, "pictures_shuffle")) cfg.pic_shuffle = yes(v);
         else if (!u_stricmp(k, "pictures")) u_copy(cfg.pic_folder, sizeof cfg.pic_folder, v);
+        else if (!u_stricmp(k, "msx_link")) cfg.msx_link = yes(v);
+        else if (!u_stricmp(k, "msx_port")) cfg.msx_port = atoi(v);
+        else if (!u_stricmp(k, "msx_kbps")) cfg.msx_kbps = atoi(v);
     }
     free(text);
+    if (cfg.msx_port < 1 || cfg.msx_port > 65535) cfg.msx_port = 8765;
+    if (cfg.msx_kbps != 128 && cfg.msx_kbps != 192 && cfg.msx_kbps != 112 && cfg.msx_kbps != 96) cfg.msx_kbps = 160;
     if (cfg.volume < 0) cfg.volume = 0;
     if (cfg.volume > 100) cfg.volume = 100;
     if (cfg.win_w < 256 || cfg.win_h < 192) { cfg.win_w = 768; cfg.win_h = 576; }
@@ -197,5 +204,12 @@ void config_save(void)
         (const char *const[]){ "europe", "americas", "asia" }[cfg.mk_region % 3], (const char *const[]){ "list", "risers", "fallers" }[cfg.mk_sort % 3],
         (const char *const[]){ "1d", "5d", "1m", "6m", "ytd", "1y", "5y", "all" }[cfg.mk_range % 8], cfg.mk_refresh, cfg.mk_list,
         cfg.cover_rows ? "on" : "off", cfg.keep_logos, cfg.keep_covers, cfg.pic_saver, cfg.pic_interval, cfg.pic_shuffle ? "yes" : "no", cfg.pic_folder);
-    if (n > 0) sys_write_file(ini_path(), buf, (size_t)n);
+    if (n > 0 && (size_t)n < sizeof buf)
+        n += snprintf(buf + n, sizeof buf - (size_t)n,
+            "[msx]\r\n"
+            "; the MSX link (K): PicoAmp on the MSX plays what this PC plays, at http://<this PC>:<port>/stream.mp3;\r\n"
+            "; kbps: the stream's MP3 bitrate (128, 160, 192)\r\n"
+            "msx_link = %s\r\nmsx_port = %d\r\nmsx_kbps = %d\r\n",
+            cfg.msx_link ? "on" : "off", cfg.msx_port, cfg.msx_kbps);
+    if (n > 0 && (size_t)n < sizeof buf) sys_write_file(ini_path(), buf, (size_t)n);
 }

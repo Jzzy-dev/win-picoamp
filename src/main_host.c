@@ -7,6 +7,7 @@
 #include <string.h>
 #include "gfx.h"
 #include "ui.h"
+#include "msxlink.h"
 #include "audio.h"
 #include "config.h"
 #include "net.h"
@@ -35,6 +36,7 @@ int main(int argc, char **argv)
     }
     ui_save_state();
     config_save();
+    msxlink_stop();
     audio_shutdown();
     return 0;
 }

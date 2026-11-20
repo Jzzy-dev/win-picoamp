@@ -263,4 +263,30 @@ unset PICOAMP_FAKE_MEDIA
 check "lyrics: another program's, the right version, synced" "$out" "lyrics state=synced lines=3 at=0 line='Fake one é'"
 check "lyrics: instrumental" "$out" "lyrics state=instrumental"
 
+# the MSX link (K): the stream (MP3 frames in time, the song in its ICY titles), the keys back, what
+# plays, the cover (80 x 80 JPEG), the station list; another program's music, then a file's
+sed -i "s|^msx_port = .*|msx_port = 18777|" $T/cfg/picoamp.ini
+python3 tests/msx_client.py 18777 6 next prev toggle > $T/msx.log 2>&1 &
+CLI=$!
+export PICOAMP_FAKE_MEDIA="Spotify|Fake Song|Fake Artist|Fake Album|200" PICOAMP_FAKE_ART=$PWD/$T/logo.jpg
+out=$(run "msxlink on; follow; wait 9000; status")
+unset PICOAMP_FAKE_MEDIA PICOAMP_FAKE_ART
+wait $CLI
+msx=$(cat $T/msx.log)
+check "msx link: the stream" "$msx" "header content-type: audio/mpeg"
+check "msx link: it says it is PicoAmp's" "$msx" "header x-picoamp: 1"
+check "msx link: the song in its title" "$msx" "meta: StreamTitle='Fake Artist - Fake Song';"
+check "msx link: N on the MSX: the next song here" "$msx" "meta: StreamTitle='Fake Artist - Fake Song 2';"
+check "msx link: MP3 frames, one after the other" "$msx" "frames in a row: [1-9][0-9][0-9], kbps/rate: \[(160, 44100)\]"
+check "msx link: pause on the MSX pauses it here" "$out" "state=2 .*title='Fake Song' .*system=1"
+check "msx link: what plays" "$msx" "now: 200 {\"state\":\"paused\",\"title\":\"Fake Song\""
+check "msx link: the cover, 80 x 80" "$msx" "cover: 200 [0-9]* bytes jpeg=True"
+check "msx link: the station list" "$msx" "m3u: 200 #EXTM3U .*:18777/stream.mp3"
+python3 tests/msx_client.py 18777 4 > $T/msx2.log 2>&1 &
+CLI=$!
+out=$(run "key Down; key Down; key Enter; wait 6000; msxlink off")
+wait $CLI
+check "msx link: a file's song" "$(cat $T/msx2.log)" "meta: StreamTitle='Unit Tester - Sine Café Song';"
+grep -q "^msx_link = off" $T/cfg/picoamp.ini && echo "ok   msx link: off, kept" || { echo "FAIL msx link: not off"; fail=1; }
+
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

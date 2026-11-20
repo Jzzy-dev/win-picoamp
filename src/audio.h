@@ -62,3 +62,8 @@ void audio_set_mode(int mode);
 void audio_set_eq(const int8_t gains[EQ_BANDS]);
 
 void audio_status_get(audio_status *s);
+
+// what is heard (before the volume), for the MSX link: PicoAmp's own music, or the
+// followed program's sound; stereo 16-bit (the audio threads call it)
+typedef void (*audio_tap_fn)(const int16_t *stereo, uint32_t frames, uint32_t rate);
+void audio_set_tap(audio_tap_fn fn);

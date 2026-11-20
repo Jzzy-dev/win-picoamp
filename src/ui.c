@@ -27,6 +27,7 @@
 #include "pages.h"
 #include "radiodir.h"
 #include "nowplaying.h"
+#include "msxlink.h"
 
 #define LIST_ROW 19
 #define LIST_N   4
@@ -907,12 +908,12 @@ static void draw_help(void)
         { A_NORM, "T          news       / J    search" },
         { A_NORM, "F          favourite+ D, DEL favourite-" },
         { A_NORM, "I          pictures   Ctrl+Up/Down fav" },
-        { A_NORM, "O          stations   Q      quit" },
+        { A_NORM, "O          stations   K      MSX link" },
         { A_NORM, "$          markets    ? F1   this help" },
         { COL(CYAN, NAVY), "Window: F11 or Alt+Enter full screen," },
         { COL(CYAN, NAVY), "  F2 scaling: fit / whole / stretch," },
         { COL(CYAN, NAVY), "  F3 scan lines, F4 always on top," },
-        { COL(CYAN, NAVY), "  ESC: minimise (the music plays on)" },
+        { COL(CYAN, NAVY), "  ESC minimise (music plays on), Q quit" },
         { COL(CYAN, NAVY), "Mouse: click, again to play; the right" },
         { COL(CYAN, NAVY), "  button goes back, the wheel scrolls" },
         { COL(CYAN, NAVY), "  (on VOL: the wheel sets the volume)" },
@@ -977,9 +978,21 @@ void ui_note(const char *text, bool error) { ui_message(text, error); }
 const char *ui_note_text(void) { return (msg[0] && sys_millis() < msg_until) ? msg : ""; }
 bool ui_note_error(void) { return msg_col == COL(RED, NAVY); }
 
+// the MSX link on / off (K), kept in the settings
+void ui_msx_link(bool on)
+{
+    char m[200];
+    cfg.msx_link = on;
+    if (!on) { msxlink_stop(); ui_message("MSX link off", false); return; }
+    if (!msxlink_start(cfg.msx_port, cfg.msx_kbps)) { cfg.msx_link = false; ui_message(msxlink_error(), true); return; }
+    snprintf(m, sizeof m, "MSX link: %s", msxlink_url());
+    ui_message(m, false);
+}
+
 void ui_frame(void)
 {
     audio_status_get(&st);
+    msxlink_tick();
     viz_poll(st.state == ST_PLAYING && !st.buffering, &viz);
     clock_service_tick();
     loading_poll();
@@ -1136,6 +1149,7 @@ void ui_key(int k)
     case 'I': ui_page(PG_PICS); return;
     case '$': ui_page(PG_MARKETS); return;
     case 'L': ui_page(PG_LYRICS); return;
+    case 'K': ui_msx_link(!msxlink_on()); return;
     case 'F': fav_add(); return;
     case 'D': case K_DEL: fav_del(); return;
     case K_CTRL_UP: case K_CTRL_DOWN:
@@ -1299,5 +1313,6 @@ void ui_init(void)
     audio_set_balance(cfg.balance);
     open_place(cfg.start_path, NULL);
     if (!list.ok) open_place("", NULL);
+    if (cfg.msx_link && !msxlink_start(cfg.msx_port, cfg.msx_kbps)) ui_message(msxlink_error(), true);
     (void)playing_place;
 }

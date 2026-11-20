@@ -66,6 +66,19 @@ jobs:
           Get-Content follow.txt
           if ($p.ExitCode -ne 0) { throw "exit code $($p.ExitCode)" }
           if ((Select-String -Path follow.txt -Pattern 'system=1').Count -lt 2) { throw "it did not follow (or it stopped)" }
+      - name: "The MSX link (Media Foundation's MP3 encoder, the stream, its titles, the cover)"
+        shell: pwsh
+        run: |
+          $cfg = "$env:APPDATA\PicoAmp"
+          Set-Content "$cfg\picoamp.ini" "folder = $pwd\covertest\Png`r`nmsx_port = 18777`r`n"
+          $c = Start-Process -FilePath python -ArgumentList 'tests/msx_client.py','18777','6' -RedirectStandardOutput msx.txt -PassThru -NoNewWindow
+          $s = 'msxlink on; key Down; key Enter; wait 9000; status; msxlink off; quit'
+          $p = Start-Process -FilePath build\PicoAmp.exe -ArgumentList '--script',"`"$s`"",'--log','msxlink.txt' -Wait -PassThru
+          $c.WaitForExit(30000) | Out-Null
+          Get-Content msxlink.txt
+          Get-Content msx.txt
+          if (-not (Select-String -Path msx.txt -Pattern 'frames in a row: [1-9][0-9]' -Quiet)) { throw "no MP3 from the link" }
+          if (-not (Select-String -Path msx.txt -Pattern "meta: StreamTitle='Tone';" -Quiet)) { throw "no title in the stream" }
       - name: "Live check (the station directory, a search, a station)"
         shell: pwsh
         continue-on-error: true
@@ -167,6 +180,9 @@ jobs:
             rp.png
             follow.txt
             follow.png
+            msx.txt
+            msxlink.txt
+            msx_cover.jpg
       - name: Release (tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

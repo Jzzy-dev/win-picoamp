@@ -54,6 +54,10 @@ typedef struct
     int    pic_interval;     // seconds a picture shows in a slideshow
     bool   pic_shuffle;
     char   pic_folder[1024]; // the screensaver's folder ("": the Pictures folder)
+    // [msx]
+    bool   msx_link;         // the MSX link: PicoAmp on the MSX plays what this PC plays (msxlink.c)
+    int    msx_port;
+    int    msx_kbps;         // the stream's MP3 bitrate
 } config;
 
 extern config cfg;

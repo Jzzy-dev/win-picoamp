@@ -20,6 +20,7 @@
 #include <string.h>
 #include "gfx.h"
 #include "ui.h"
+#include "msxlink.h"
 #include "audio.h"
 #include "config.h"
 #include "net.h"
@@ -613,6 +614,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
         ui_save_state();
         config_save();
     }
+    msxlink_stop();
     audio_shutdown();
     LocalFree(argv);
     return rc;
