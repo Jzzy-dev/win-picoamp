@@ -206,9 +206,11 @@ static void loop_open(uint32_t pid)
     }
 }
 
-static void sys_leave(void)
+// pause_it: PicoAmp plays its own music now, so the program's stops (if it plays)
+static void sys_leave(bool pause_it)
 {
     if (!following) return;
+    if (pause_it && sys_now.state == NP_PLAYING) np_cmd(NP_PAUSE, 0);
     following = false;
     sys_vol_known = false;
     np_end();
@@ -599,7 +601,7 @@ static void do_cmd(cmd_t *c)
     if (c->type == C_SYSTEM) { sys_enter(); return; }
     if (following)
     {
-        if (c->type == C_FILES || c->type == C_URL) sys_leave();
+        if (c->type == C_FILES || c->type == C_URL) sys_leave(true);     // a file or a station: it takes over
         else { sys_cmd(c); free(c->url); free(c->name); return; }
     }
     switch (c->type)

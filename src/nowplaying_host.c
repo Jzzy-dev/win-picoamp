@@ -89,7 +89,9 @@ void np_cmd(int cmd, int arg)
         else { t0 = sys_millis() - (uint32_t)paused_at; state = NP_PLAYING; }
         break;
     case NP_PLAY:  if (state != NP_PLAYING) np_cmd(NP_TOGGLE, 0); break;
-    case NP_PAUSE: if (state == NP_PLAYING) np_cmd(NP_TOGGLE, 0); break;
+    case NP_PAUSE:
+        if (state == NP_PLAYING) { np_cmd(NP_TOGGLE, 0); fprintf(stderr, "pretend player: paused\n"); }
+        break;
     case NP_STOP:  state = NP_STOPPED; paused_at = 0; break;
     case NP_NEXT:  track++; t0 = sys_millis(); paused_at = 0; break;
     case NP_PREV:  if (track) track--; t0 = sys_millis(); paused_at = 0; break;

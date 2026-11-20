@@ -512,6 +512,14 @@ static int np_main(void *arg)
         }
         Sleep(15);
     }
+    // the keys asked for last (np_end after a pause: it still goes to the program)
+    sys_lock(lock);
+    np_q last[16];
+    int nl = qn;
+    memcpy(last, q, sizeof last[0] * (size_t)nl);
+    qn = 0;
+    sys_unlock(lock);
+    for (int i = 0; i < nl; i++) run_cmd(last[i]);
     rel(cur);
     cur = NULL;
     rel(mgr);

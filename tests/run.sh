@@ -242,6 +242,7 @@ check "follow: N its next track" "$out" "state=1 .*title='Fake Song 2' .*system=
 check "follow: > seeks in it" "$out" "elapsed=1[01]/200 .*title='Fake Song 2'"
 check "follow: its volume, shuffle and repeat" "$out" "vol=55 .*system=1 source='Spotify' mode=3"
 check "follow: a file here ends it" "$out" "title='Sine Café Song' .*system=0"
+check "follow: and pauses the program" "$out" "pretend player: paused"
 [ "$(sed -n 's/^volume = //p' $T/cfg/picoamp.ini)" = "$vol_before" ] && echo "ok   follow: the player's own volume kept" || { echo "FAIL follow: the player's volume changed"; fail=1; }
 
 # the lyrics (L, from the stand-in for LRCLIB): a file's, synced (its one song, by its length), the line

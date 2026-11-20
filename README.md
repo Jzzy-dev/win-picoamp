@@ -45,7 +45,8 @@ and the window can be any size.
     next and previous track, , / . and the seek bar seek, H / R its shuffle and repeat, S pauses it.
   * The volume and mute set the program's own volume in Windows's mixer (Spotify, and programs whose
     `.exe` Windows names); PicoAmp's own volume is kept for its own music.
-  * Playing a file or a station in PicoAmp ends it. `PicoAmp.exe --follow` starts with it.
+  * Playing a file or a station in PicoAmp ends it, and pauses the program if it plays: the new
+    music takes over. `PicoAmp.exe --follow` starts with it.
   * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.
 * **Lyrics (L):** the words of what plays, from [LRCLIB](https://lrclib.net), a free, open lyrics
   database (no account, no key). Many songs have synced lyrics: the line sung now shows in yellow,

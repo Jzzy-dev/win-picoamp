@@ -36,7 +36,7 @@ typedef struct
 
 bool np_supported(void);         // false: this PC cannot (the entry does not show)
 void np_start(void);             // follow (a thread of its own)
-void np_end(void);
+void np_end(void);              // (the keys asked for before it still go to the program)
 bool np_get(np_info *out);       // false: not started
 // the picture of what plays (malloc'd JPEG / PNG bytes); false: none
 bool np_art(uint8_t **data, size_t *len);
