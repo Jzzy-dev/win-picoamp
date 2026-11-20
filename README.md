@@ -53,7 +53,12 @@ and the window can be any size.
   stations. K turns it on and shows the address to put in the MSX's favourites (`RADIOFAV.M3U` on its card),
   e.g. `http://192.168.1.20:8765/stream.mp3`; Windows asks once whether PicoAmp may take connections (allow
   private networks).
-  * The MSX hears it as an internet radio station: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of
+  * Two ways, two addresses (both in `/picoamp.m3u`):
+    * `/stream.mp3`: the MSX plays the sound (the MSX as a speaker, a few seconds behind).
+    * `/screen`: the MSX as this PC's **screen and remote**: no sound there; the song, its time and state, the
+      cover and the bars as this PC shows them (25 times a second, in step with what you hear here), and
+      the keys back.
+  * As a speaker, the MSX hears it as an internet radio station: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of
     what is heard here, with the song in its titles; silence while nothing plays, so the station stays.
   * The MSX's keys come back here (`/cmd`): SPACE, N, P (pause, next, previous), `,` `.` (seeking), H and R
     (shuffle, repeat), also for Spotify.

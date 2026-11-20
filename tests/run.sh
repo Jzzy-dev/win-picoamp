@@ -290,5 +290,18 @@ out=$(run "key Down; key Down; key Enter; wait 6000; msxlink off")
 wait $CLI
 check "msx link: a file's song" "$(cat $T/msx2.log)" "meta: StreamTitle='Unit Tester - Sine Café Song';"
 grep -q "^msx_link = off" $T/cfg/picoamp.ini && echo "ok   msx link: off, kept" || { echo "FAIL msx link: not off"; fail=1; }
+# its screen (the MSX as the PC's screen and remote: no sound): the song (in the MSX's characters), its
+# time and state, the bars 25 times a second; seeking to a time and pause from the MSX
+python3 tests/msx_client.py 18777 5 --screen 'seek&to=10' toggle > $T/msx3.log 2>&1 &
+CLI=$!
+out=$(run "msxlink on; key Down; key Down; key Enter; wait 7000; status; msxlink off")
+wait $CLI
+scr=$(cat $T/msx3.log)
+check "msx screen: X-PicoAmp: 2" "$scr" "screen status: HTTP/1.0 200 OK | x-picoamp: 2"
+check "msx screen: the song, in the MSX's characters" "$scr" "screen song: \['Unit Tester', 'Sine Caf.x82 Song', ''\]"
+check "msx screen: its time and state" "$scr" "screen time: [0-9]* 30 p"
+check "msx screen: the bars, 25 a second" "$scr" "screen bars: 1[0-9][0-9] lines in 5 s, [1-9][0-9]* with bars lit"
+check "msx screen: seeking to a time from the MSX" "$scr" "screen time: 1[01][0-9][0-9][0-9] 30"
+check "msx screen: pause from the MSX" "$out" "state=2 .*title='Sine Café Song'"
 
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

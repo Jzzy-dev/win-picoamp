@@ -8,6 +8,8 @@
 //   /cover.jpg                           the cover, 80 x 80, baseline JPEG (X-Cover-Gen: n);
 //                                        ?w=281&h=192: the full screen's (fits 281 x 192)
 //   /cmd?k=toggle|play|pause|next|prev|seek&s=+-seconds|to=seconds|shuffle&on=0/1|repeat&on=0/1/2
+//   /screen                              the MSX as the PC's screen and remote: no sound, the bars, the song,
+//                                        its time and state as lines (X-PicoAmp: 2; msxlink.c says them)
 //   /now                                 what plays (JSON)
 //   /picoamp.m3u                         a station list with the stream, for the card
 #pragma once

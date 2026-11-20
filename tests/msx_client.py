@@ -11,6 +11,9 @@ import socket, sys, time, json, urllib.request
 
 PORT, SECS, KEYS = int(sys.argv[1]), float(sys.argv[2]), sys.argv[3:]
 BASE = 'http://127.0.0.1:%d' % PORT
+SCREEN = '--screen' in KEYS
+if SCREEN:
+    KEYS.remove('--screen')
 
 def get(path):
     try:
@@ -25,6 +28,47 @@ for _ in range(150):                      # (the link starts with the player)
         break
     except OSError:
         time.sleep(0.1)
+
+if SCREEN:
+    # the MSX as the PC's screen and remote: no sound, its lines (S, T, V)
+    s = socket.create_connection(('127.0.0.1', PORT), timeout=4)
+    s.sendall(b'GET /screen HTTP/1.0\r\nHost: x\r\n\r\n')
+    f = s.makefile('rb')
+    st = f.readline().decode().strip()
+    hdr = {}
+    while True:
+        l = f.readline().decode().strip()
+        if not l:
+            break
+        k, v = l.split(':', 1)
+        hdr[k.lower()] = v.strip()
+    print('screen status:', st, '| x-picoamp:', hdr.get('x-picoamp'), '| type:', hdr.get('content-type'))
+    t0 = time.time()
+    nv = 0
+    lit = 0
+    keys = list(KEYS)
+    next_key = t0 + 1.0
+    try:
+        while time.time() - t0 < SECS:
+            l = f.readline()
+            if not l:
+                break
+            if l[:1] == b'V':
+                nv += 1
+                if len(l) == 92 and max(l[1:25]) > ord('0'):
+                    lit += 1
+            elif l[:1] == b'S':
+                print('screen song:', l[1:].rstrip(b'\n').decode('latin-1').split('\t'))
+            elif l[:1] == b'T':
+                print('screen time:', l[1:].decode().strip())
+            if keys and time.time() >= next_key:
+                k = keys.pop(0)
+                print('key %s: %d' % (k, get('/cmd?k=' + k)[0]))
+                next_key = time.time() + 1.0
+    except OSError as e:
+        print('screen ended:', e)
+    print('screen bars: %d lines in %.0f s, %d with bars lit' % (nv, SECS, lit))
+    sys.exit(0)
 
 s = socket.create_connection(('127.0.0.1', PORT), timeout=4)
 s.sendall(b'GET /stream.mp3 HTTP/1.0\r\nHost: x\r\nIcy-MetaData: 1\r\nUser-Agent: PicoAmp MSX test\r\n\r\n')

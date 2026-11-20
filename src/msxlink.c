@@ -65,8 +65,9 @@ static sys_thread  *accept_th, *enc_th;
 static int          kbps = 160, port;
 static char         url[96], err[160];
 static sys_mutex   *lock;                // the counts, the cover
-static volatile int clients, listeners;
-static int          listeners_seen = -1;
+static volatile int clients, listeners, screens;
+static int          listeners_seen = -1, screens_seen = -1;
+static viz_data     snap;                   // the bars as the screen shows them (the screen's thread copies them)
 static char         err_shown[160];
 
 // the PCM ring (audio threads -> encoder)
@@ -303,7 +304,15 @@ void msxlink_tick(void)
         else if (listeners_seen > 0 && !listeners) ui_note("The MSX stopped listening", false);
         listeners_seen = listeners;
     }
+    if (screens != screens_seen)
+    {
+        if (screens_seen >= 0 && screens > screens_seen) ui_note("The MSX shows what plays", false);
+        screens_seen = screens;
+    }
     if (!clients && !listeners) return;
+    sys_lock(lock);
+    snap = ui_viz;
+    sys_unlock(lock);
     ui_cover_follow();                      // (the cover of what plays, also when the page does not show it)
     unsigned g = cover_gen();
     if (g == cover_seen || cover_state() == COVER_MAKING) return;
@@ -411,6 +420,79 @@ static void stream(sock_t s, bool meta)
     sys_unlock(lock);
 }
 
+// a text in the MSX's character set, without tabs and line ends
+static int msx_text(char *o, int n, const char *utf8)
+{
+    uint8_t b[256];
+    int k = gfx_to_msx(utf8, b, sizeof b), m = 0;
+    for (int i = 0; i < k && m + 1 < n; i++) o[m++] = (char)(b[i] == '\t' || b[i] == '\n' || b[i] == '\r' ? ' ' : b[i]);
+    o[m] = 0;
+    return m;
+}
+
+// the MSX's screen (X-PicoAmp: 2): no sound, what the PC's player shows, as lines
+//   V<24 levels, '0' + 0..31><VU left, right><64 scope samples, ' ' + (s + 128) / 3>   every 40 ms
+//   T <elapsed ms> <length s> <p playing | a paused | s stopped>                    every 500 ms and when it changes
+//   S<artist> TAB <title> TAB <album>                                               when the song changes
+static void screen(sock_t s)
+{
+    char host[64], h[300];
+    if (gethostname(host, sizeof host)) u_copy(host, sizeof host, "the PC");
+    host[sizeof host - 1] = 0;
+    int n = snprintf(h, sizeof h, "HTTP/1.0 200 OK\r\nContent-Type: text/x-picoamp-screen\r\nicy-name: PicoAmp on %s\r\n"
+                                  "X-PicoAmp: 2\r\nCache-Control: no-cache, no-store\r\nConnection: close\r\n\r\n", host);
+    if (!send_all(s, h, (size_t)n)) return;
+    sys_lock(lock);
+    screens++;
+    sys_unlock(lock);
+    char song[700] = "\x01", line[800];
+    int last_state = -1;
+    uint32_t last_t = 0;
+    while (running)
+    {
+        audio_status st;
+        audio_status_get(&st);
+        uint32_t now = sys_millis();
+        // the song
+        char a[200], t[200], al[200];
+        msx_text(a, sizeof a, st.artist);
+        msx_text(t, sizeof t, st.title[0] ? st.title : st.state == ST_STOPPED ? "" : st.album);
+        msx_text(al, sizeof al, st.stream ? "" : st.album);
+        n = snprintf(line, sizeof line, "S%.39s\t%.47s\t%.39s\n", a, t, al);
+        if (strcmp(line, song))
+        {
+            u_copy(song, sizeof song, line);
+            if (!send_all(s, line, (size_t)n)) break;
+        }
+        // its time and state
+        int ps = st.state == ST_PLAYING ? 'p' : st.state == ST_PAUSED ? 'a' : 's';
+        if (ps != last_state || now - last_t >= 500)
+        {
+            n = snprintf(line, sizeof line, "T %d %d %c\n", st.elapsed_ms, st.total, ps);
+            if (!send_all(s, line, (size_t)n)) break;
+            last_state = ps;
+            last_t = now;
+        }
+        // the bars
+        viz_data v;
+        sys_lock(lock);
+        v = snap;
+        sys_unlock(lock);
+        int k = 0;
+        line[k++] = 'V';
+        for (int b = 0; b < 24; b++) line[k++] = (char)('0' + (b < VIZ_BANDS ? (v.level[b] > 31 ? 31 : v.level[b]) : 0));
+        line[k++] = (char)('0' + (v.vu[0] > 31 ? 31 : v.vu[0]));
+        line[k++] = (char)('0' + (v.vu[1] > 31 ? 31 : v.vu[1]));
+        for (int i = 0; i < 64; i++) line[k++] = (char)(' ' + ((i < VIZ_WAVE ? v.scope[i] : 0) + 128) / 3);
+        line[k++] = '\n';
+        if (!send_all(s, line, (size_t)k)) break;
+        sys_sleep_ms(40);
+    }
+    sys_lock(lock);
+    screens--;
+    sys_unlock(lock);
+}
+
 static void json_str(char *o, size_t n, const char *s)
 {
     size_t k = 0;
@@ -479,6 +561,7 @@ static int client_main(void *arg)
 
     if (!path[0]) send_text(s, "400 Bad Request", "text/plain", "GET only\n", 9, NULL);
     else if (!strcmp(p0, "/") || !strcmp(p0, "/stream.mp3") || !strcmp(p0, "/stream") || !strcmp(p0, "/;")) stream(s, meta);
+    else if (!strcmp(p0, "/screen")) screen(s);
     else if (!strcmp(p0, "/cmd"))
     {
         char k[16], v[16];
@@ -554,8 +637,12 @@ static int client_main(void *arg)
     }
     else if (!strcmp(p0, "/picoamp.m3u"))
     {
-        char b[256];
-        int n = snprintf(b, sizeof b, "#EXTM3U\r\n#EXTINF:-1,PicoAmp on the PC\r\n%s\r\n", url);
+        char b[512];
+        char su[96];
+        u_copy(su, sizeof su, url);
+        char *sl = strrchr(su, '/');
+        if (sl) u_copy(sl, sizeof su - (size_t)(sl - su), "/screen");
+        int n = snprintf(b, sizeof b, "#EXTM3U\r\n#EXTINF:-1,PicoAmp on the PC\r\n%s\r\n#EXTINF:-1,PicoAmp on the PC: screen and remote\r\n%s\r\n", url, su);
         send_text(s, "200 OK", "audio/x-mpegurl", b, (size_t)n, NULL);
     }
     else send_text(s, "404 Not Found", "text/plain", "not here\n", 9, NULL);
