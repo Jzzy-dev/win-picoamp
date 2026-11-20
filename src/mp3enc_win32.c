@@ -62,6 +62,12 @@ static IMFMediaType *mp3_type(int rate, int ch, int kbps)
     IMFMediaType_SetUINT32(t, &MF_MT_AUDIO_SAMPLES_PER_SECOND, (UINT32)rate);
     IMFMediaType_SetUINT32(t, &MF_MT_AUDIO_NUM_CHANNELS, (UINT32)ch);
     IMFMediaType_SetUINT32(t, &MF_MT_AUDIO_AVG_BYTES_PER_SECOND, (UINT32)(kbps * 1000 / 8));
+    IMFMediaType_SetUINT32(t, &MF_MT_AUDIO_BLOCK_ALIGNMENT, 1);
+    // the rest of MPEGLAYER3WAVEFORMAT after its WAVEFORMATEX: wID 1 (MPEG), fdwFlags 0 (padding as ISO),
+    // nBlockSize (a frame's bytes), nFramesPerBlock 1, nCodecDelay 0
+    unsigned bs = (unsigned)(144 * kbps * 1000 / rate);
+    UINT8 ud[12] = { 1, 0, 0, 0, 0, 0, (UINT8)bs, (UINT8)(bs >> 8), 1, 0, 0, 0 };
+    IMFMediaType_SetBlob(t, &MF_MT_USER_DATA, ud, sizeof ud);
     return t;
 }
 
@@ -119,15 +125,12 @@ mp3enc *mp3enc_open(int rate, int channels, int kbps)
     CoTaskMemFree(acts);
     if (!e->t) { snprintf(err, sizeof err, "The MP3 encoder does not start"); free(e); return NULL; }
 
-    // the input first, then the output it offers; else the output first
-    IMFMediaType *in = pcm_type(rate, channels), *o = NULL;
-    HRESULT h1 = IMFTransform_SetInputType(e->t, 0, in, 0), h2 = S_OK, h3 = S_OK;
-    bool ok = SUCCEEDED(h1) && pick_output(e, kbps);
-    if (!ok)
-    {
-        o = mp3_type(rate, channels, kbps);
-        ok = o && SUCCEEDED(h2 = IMFTransform_SetOutputType(e->t, 0, o, 0)) && SUCCEEDED(h3 = IMFTransform_SetInputType(e->t, 0, in, 0));
-    }
+    // the output first (as Microsoft's MP3 encoder wants it), then the input; else the input first, then the
+    // output it offers (another encoder)
+    IMFMediaType *in = pcm_type(rate, channels), *o = mp3_type(rate, channels, kbps);
+    HRESULT h1 = S_OK, h2 = S_OK, h3 = S_OK;
+    bool ok = o && SUCCEEDED(h1 = IMFTransform_SetOutputType(e->t, 0, o, 0)) && SUCCEEDED(h2 = IMFTransform_SetInputType(e->t, 0, in, 0));
+    if (!ok) ok = SUCCEEDED(h3 = IMFTransform_SetInputType(e->t, 0, in, 0)) && pick_output(e, kbps);
     if (in) IMFMediaType_Release(in);
     if (o) IMFMediaType_Release(o);
     if (!ok)
