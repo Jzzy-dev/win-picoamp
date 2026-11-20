@@ -992,7 +992,13 @@ void ui_msx_link(bool on)
 void ui_frame(void)
 {
     audio_status_get(&st);
-    if (!st.system) cfg.mode = st.mode;     // (the MSX link may have changed it)
+    if (!st.system)
+    {
+        // (the MSX link may have changed them)
+        cfg.mode = st.mode;
+        cfg.volume = st.volume;
+        cfg.muted = st.muted;
+    }
     msxlink_tick();
     viz_poll(st.state == ST_PLAYING && !st.buffering, &viz);
     clock_service_tick();

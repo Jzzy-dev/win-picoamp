@@ -432,7 +432,7 @@ static int msx_text(char *o, int n, const char *utf8)
 
 // the MSX's screen (X-PicoAmp: 2): no sound, what the PC's player shows, as lines
 //   V<24 levels, '0' + 0..31><VU left, right><64 scope samples, ' ' + (s + 128) / 3>   every 40 ms
-//   T <elapsed ms> <length s> <p playing | a paused | s stopped>                    every 500 ms and when it changes
+//   T <elapsed ms> <length s> <p playing | a paused | s stopped> <volume> <muted 0/1> every 500 ms and when it changes
 //   S<artist> TAB <title> TAB <album>                                               when the song changes
 static void screen(sock_t s)
 {
@@ -446,7 +446,7 @@ static void screen(sock_t s)
     screens++;
     sys_unlock(lock);
     char song[700] = "\x01", line[800];
-    int last_state = -1;
+    int last_state = -1, last_vol = -1;
     uint32_t last_t = 0;
     while (running)
     {
@@ -466,11 +466,13 @@ static void screen(sock_t s)
         }
         // its time and state
         int ps = st.state == ST_PLAYING ? 'p' : st.state == ST_PAUSED ? 'a' : 's';
-        if (ps != last_state || now - last_t >= 500)
+        int vm = st.volume * 2 + (st.muted ? 1 : 0);
+        if (ps != last_state || vm != last_vol || now - last_t >= 500)
         {
-            n = snprintf(line, sizeof line, "T %d %d %c\n", st.elapsed_ms, st.total, ps);
+            n = snprintf(line, sizeof line, "T %d %d %c %d %d\n", st.elapsed_ms, st.total, ps, st.volume, st.muted ? 1 : 0);
             if (!send_all(s, line, (size_t)n)) break;
             last_state = ps;
+            last_vol = vm;
             last_t = now;
         }
         // the bars
@@ -574,6 +576,19 @@ static int client_main(void *arg)
         else if (!strcmp(k, "pause")) { if (st.state == ST_PLAYING) audio_toggle_pause(); }
         else if (!strcmp(k, "next")) audio_next();
         else if (!strcmp(k, "prev")) audio_prev();
+        else if (!strcmp(k, "vol"))
+        {
+            // the volume (the player's, or the followed program's in the mixer), mute
+            query(path, "v", v, sizeof v);
+            if (v[0]) audio_set_volume(atoi(v) < 0 ? 0 : atoi(v) > 100 ? 100 : atoi(v));
+            ok = v[0] != 0;
+        }
+        else if (!strcmp(k, "mute"))
+        {
+            query(path, "on", v, sizeof v);
+            if (v[0]) audio_set_mute(atoi(v) != 0);
+            ok = v[0] != 0;
+        }
         else if (!strcmp(k, "shuffle") || !strcmp(k, "repeat"))
         {
             // on=0 off, else on (repeat: 1 the list, 2 the track: both the player's repeat)
@@ -591,7 +606,7 @@ static int client_main(void *arg)
         }
         else ok = false;
         if (ok) send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
-        else send_text(s, "400 Bad Request", "text/plain", "k: toggle play pause next prev seek shuffle repeat\n", 51, NULL);
+        else send_text(s, "400 Bad Request", "text/plain", "k: toggle play pause next prev seek shuffle repeat vol mute\n", 60, NULL);
     }
     else if (!strcmp(p0, "/now"))
     {

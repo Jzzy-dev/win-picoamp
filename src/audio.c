@@ -123,14 +123,15 @@ static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
     if (done)
     {
         viz_feed(o, done, dev_rate);
-        audio_tap_fn t = tap;
-        if (t) t(o, done, dev_rate);
         int gl = gain_l, gr = gain_r;
         for (ma_uint32 i = 0; i < done; i++)
         {
             o[2 * i] = (int16_t)(((int32_t)o[2 * i] * gl) >> 15);
             o[2 * i + 1] = (int16_t)(((int32_t)o[2 * i + 1] * gr) >> 15);
         }
+        // (after the volume: the MSX link's sound is the PC's, at its volume, as it is for another program's)
+        audio_tap_fn t = tap;
+        if (t) t(o, done, dev_rate);
         played += done;
     }
     if (done < frames) memset(o + done * 2, 0, (size_t)(frames - done) * 4);

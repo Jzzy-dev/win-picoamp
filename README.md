@@ -65,8 +65,9 @@ and the window can be any size.
   * The cover goes to the MSX as it wants it: 80 × 80, baseline JPEG (`/cover.jpg`); for its full screen
     cover (Z) as big as fits 281 × 192 (`/cover.jpg?w=281&h=192`).
   * `/now` says what plays (JSON); `/picoamp.m3u` is a station list with the stream.
-  * The MSX plays a few seconds behind (its buffer): turn this PC's speakers down. PicoAmp's own mute (M)
-    mutes only this PC: the MSX still gets the sound.
+  * The MSX's volume keys and M are this PC's (PicoAmp's, or Spotify's when it follows Spotify), in both
+    ways: the sound the MSX gets is this PC's, at its volume. As a speaker, the MSX plays a few seconds behind
+    (its buffer): turn this PC's speakers down.
   * `[msx]` in `picoamp.ini`: `msx_link`, `msx_port` (8765), `msx_kbps` (96, 112, 128, 160, 192).
 * **Lyrics (L):** the words of what plays, from [LRCLIB](https://lrclib.net), a free, open lyrics
   database (no account, no key). Many songs have synced lyrics: the line sung now shows in yellow,
