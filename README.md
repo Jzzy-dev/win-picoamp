@@ -43,8 +43,13 @@ and the window can be any size.
     of that program's sound only from Windows 10 build 20348 (Windows 11), else of all of the PC.
   * The keys and the control row go to it: Space / > / || play and pause, N / P (and the media keys) the
     next and previous track, , / . and the seek bar seek, H / R its shuffle and repeat, S pauses it.
-  * The volume and mute set the program's own volume in Windows's mixer (Spotify, and programs whose
-    `.exe` Windows names); PicoAmp's own volume is kept for its own music.
+  * The volume and mute set the program's own volume in Windows's mixer (Spotify, the Media Player,
+    Windows Media Player, Store apps, and programs whose `.exe` Windows names); PicoAmp's own volume is
+    kept for its own music.
+  * Only programs that tell Windows what they play can be followed. VLC 3 does not (VLC 4 will); the
+    [vlc-win10smtc](https://github.com/spmn/vlc-win10smtc) plugin adds it: copy its DLL (the same 32 or
+    64 bit as VLC) to VLC's `plugins\misc`, then in VLC's Preferences (All) > Interface > Control
+    interfaces tick "Windows 10 SMTC integration" and restart VLC.
   * Playing a file or a station in PicoAmp ends it, and pauses the program if it plays: the new
     music takes over. `PicoAmp.exe --follow` starts with it.
   * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.

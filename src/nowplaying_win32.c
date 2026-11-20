@@ -141,6 +141,8 @@ static char    track_key[800];
 static DWORD   art_at[2];           // when to read the picture (0: not)
 static bool    art_first;           // the first read for this track: shown even if the same bytes
 static WCHAR   exe[MAX_PATH];       // the program's .exe ("Spotify.exe"), for the mixer and the loopback
+static WCHAR   pkg[MAX_PATH];       // a Store program's package ("Microsoft.ZuneMusic"): its sessions in the mixer name it
+static DWORD   sess_pid;            // the process the mixer showed for it
 static DWORD   pids[64];
 static int     npids;
 static DWORD   root_pid;
@@ -163,9 +165,22 @@ static void app_name(const char *id, char *name, size_t n)
     exe[0] = 0;
     char e[MAX_PATH];
     if (strstr(id, "potify") || strstr(id, "POTIFY")) u_copy(e, sizeof e, "Spotify.exe");
+    else if (strstr(id, "ZuneMusic")) u_copy(e, sizeof e, "Microsoft.Media.Player.exe");   // (the new Media Player)
+    else if (strstr(id, "MediaPlayer32")) u_copy(e, sizeof e, "wmplayer.exe");           // (Windows Media Player Legacy)
     else if (u_ends_with_ci(id, ".exe")) u_copy(e, sizeof e, u_basename(id));
     else e[0] = 0;
     if (e[0]) MultiByteToWideChar(CP_UTF8, 0, e, -1, exe, MAX_PATH);
+    // a Store program ("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic"): its package, as its sessions' ids have it
+    pkg[0] = 0;
+    if (!u_ends_with_ci(id, ".exe") && !strchr(id, '\\'))
+    {
+        char k[256];
+        u_copy(k, sizeof k, id);
+        char *c = strchr(k, '_');
+        if (!c) c = strchr(k, '!');
+        if (c) *c = 0;
+        if (strlen(k) >= 4) MultiByteToWideChar(CP_UTF8, 0, k, -1, pkg, MAX_PATH);
+    }
 }
 
 // the program's processes (all of the .exe's), and the first of them (its parent is not one of them)
@@ -187,6 +202,17 @@ static void find_pids(void)
         for (int j = 0; j < npids; j++) if (parent[i] == pids[j]) child = true;
         if (!child) root_pid = pids[i];
     }
+    // (none by its name: the one whose sessions in the mixer are the program's)
+    if (!npids && sess_pid) { pids[npids++] = sess_pid; root_pid = sess_pid; }
+}
+
+// does the text have the word in it (any case)
+static bool has_ci(const WCHAR *t, const WCHAR *w)
+{
+    size_t n = wcslen(w);
+    if (!n) return false;
+    for (; *t; t++) if (!_wcsnicmp(t, w, n)) return true;
+    return false;
 }
 
 static bool our_pid(DWORD p) { for (int i = 0; i < npids; i++) if (pids[i] == p) return true; return false; }
@@ -195,7 +221,7 @@ static bool our_pid(DWORD p) { for (int i = 0; i < npids; i++) if (pids[i] == p)
 static void mixer(int set_volume, int set_mute, int *volume, bool *muted)
 {
     *volume = -1;
-    if (!npids) return;
+    if (!npids && !pkg[0]) return;
     if (!dev_enum && FAILED(CoCreateInstance(&CLSID_DevEnum, NULL, CLSCTX_ALL, &IID_DevEnum, &dev_enum))) { dev_enum = NULL; return; }
     void *dev = NULL, *mgr2 = NULL, *en = NULL;
     // IMMDeviceEnumerator::GetDefaultAudioEndpoint(eRender, eMultimedia)
@@ -214,6 +240,21 @@ static void mixer(int set_volume, int set_mute, int *volume, bool *muted)
                 void *ctl2 = qi(ctl, &IID_SessCtl2);
                 DWORD pid = 0;
                 if (ctl2) ((HRESULT (WINAPI *)(void *, DWORD *))VT(ctl2)[14])(ctl2, &pid);    // GetProcessId
+                if (pid && !our_pid(pid) && pkg[0] && ctl2)
+                {
+                    // a Store program's session: its id has the package's path ("...\WindowsApps\Microsoft.ZuneMusic_...")
+                    WCHAR *sid = NULL;
+                    if (SUCCEEDED(((HRESULT (WINAPI *)(void *, WCHAR **))VT(ctl2)[12])(ctl2, &sid)) && sid)     // GetSessionIdentifier
+                    {
+                        if (has_ci(sid, pkg))
+                        {
+                            sess_pid = pid;
+                            if (npids < 64) pids[npids++] = pid;
+                            if (!root_pid) root_pid = pid;
+                        }
+                        CoTaskMemFree(sid);
+                    }
+                }
                 if (pid && our_pid(pid))
                 {
                     void *sv = qi(ctl, &IID_SimpleVol);
@@ -327,14 +368,18 @@ static void poll(void)
         sys_unlock(lock);
         track_key[0] = 0;
         exe[0] = 0;
+        pkg[0] = 0;
+        sess_pid = 0;
         npids = 0;
         return;
     }
-    WCHAR old_exe[MAX_PATH];
+    WCHAR old_exe[MAX_PATH], old_pkg[MAX_PATH];
     wcscpy(old_exe, exe);
+    wcscpy(old_pkg, pkg);
     app_name(id, n.app, sizeof n.app);
     DWORD now = GetTickCount();
-    if (wcscmp(old_exe, exe) || now - pids_at > 3000) { find_pids(); pids_at = now; }
+    if (wcscmp(old_pkg, pkg)) sess_pid = 0;
+    if (wcscmp(old_exe, exe) || wcscmp(old_pkg, pkg) || now - pids_at > 3000) { find_pids(); pids_at = now; }
     n.audio_pid = root_pid;
 
     // the playback: its state, what its keys can do, shuffle and repeat
