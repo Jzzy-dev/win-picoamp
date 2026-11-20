@@ -2,7 +2,7 @@
 // the PC, and the internet radio station lists.
 //
 // A place is a string:
-//   ""                the top: [Internet radio], [Music], the drives
+//   ""                the top: [Internet radio], [Music], Spotify & other players, the drives
 //   "radio:"          the station lists: every .m3u / .pls in <settings>\Radio
 //   "radio:Name.m3u"  the stations of one list
 //   "rb:..."          the Radio Browser directory: rb:top, rb:votes, rb:trend,
@@ -13,7 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-enum { E_PARENT = 0, E_FOLDER = 1, E_FILE = 2, E_STATION = 6, E_MORE = 7 };
+enum { E_PARENT = 0, E_FOLDER = 1, E_FILE = 2, E_STATION = 6, E_MORE = 7, E_SYSTEM = 8 };   // E_SYSTEM: follow another program (audio_follow_system)
 
 typedef struct
 {

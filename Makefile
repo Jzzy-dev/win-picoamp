@@ -37,7 +37,7 @@ build/picoamp.res.o: res/picoamp.rc res/picoamp.ico res/picoamp.manifest | build
 build/tjpgd.win.o: third_party/tjpgd/tjpgd.c | build
 	$(WINCC) -O2 -w -Ithird_party/tjpgd -c $< -o $@
 
-WINOBJ = $(patsubst src/%.c,build/%.win.o,$(COMMON) src/main_win32.c) build/tjpgd.win.o build/picoamp.res.o
+WINOBJ = $(patsubst src/%.c,build/%.win.o,$(COMMON) src/main_win32.c src/nowplaying_win32.c) build/tjpgd.win.o build/picoamp.res.o
 
 build/PicoAmp.exe: $(WINOBJ)
 	$(WINCC) -o $@ $(WINOBJ) -mwindows -municode -static \
@@ -53,7 +53,7 @@ build/miniaudio_impl.host.o: src/miniaudio_impl.c | build
 build/tjpgd.host.o: third_party/tjpgd/tjpgd.c | build
 	$(HOSTCC) -O2 -w -Ithird_party/tjpgd -c $< -o $@
 
-HOSTOBJ = $(patsubst src/%.c,build/%.host.o,$(COMMON) src/main_host.c) build/tjpgd.host.o
+HOSTOBJ = $(patsubst src/%.c,build/%.host.o,$(COMMON) src/main_host.c src/nowplaying_host.c) build/tjpgd.host.o
 
 build/picoamp_test: $(HOSTOBJ)
 	$(HOSTCC) -o $@ $(HOSTOBJ) -lpthread -lm -ldl

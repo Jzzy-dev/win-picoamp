@@ -486,6 +486,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
         if (!wcscmp(argv[i], L"--script")) script = narrow(argv[i + 1]);
         if (!wcscmp(argv[i], L"--log")) script_log = narrow(argv[i + 1]);
     }
+    // --follow: start with what another program plays (Spotify ...), as its entry in the list
+    bool follow = false;
+    for (int i = 1; i < argc; i++) if (!wcscmp(argv[i], L"--follow")) follow = true;
     if (script && !smoke) smoke = NULL;
     bool smoke_run = smoke != NULL || script != NULL;
     FILE *script_out = NULL;
@@ -531,6 +534,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     RegisterHotKey(hwnd, HK_PREV, MOD_NOREPEAT, VK_MEDIA_PREV_TRACK);
 
     if (smoke && smoke_url) audio_play_url(smoke_url, "Smoke test");
+    if (follow) audio_follow_system();
     if (script)
     {
         script_out = script_log ? sys_fopen(script_log, "w") : NULL;

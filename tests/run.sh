@@ -223,4 +223,24 @@ check "screensaver: after a minute" "$out" "pictures screensaver .*have=1"
 check "screensaver: a key, back to the player" "$(printf '%s\n' "$out" | tail -1)" "^page 0"
 sed -i "s|^saver = .*|saver = 0|" $T/cfg/picoamp.ini
 
+# another program's music (the pretend player of the test build): its track, its picture, its keys,
+# its volume, shuffle and repeat; then a file here: the player's own again
+sed -i "s|^folder = .*|folder = |" $T/cfg/picoamp.ini
+top=$(PICOAMP_FAKE_MEDIA="Spotify|x|y|z|1" PICOAMP_CONFIG=$T/cfg PICOAMP_MUSIC=$PWD/$T/Music timeout 60 $BIN "list" 2>&1)
+check "follow: its entry at the top of the list" "$top" "8 Spotify & other players"
+sed -i "s|^folder = .*|folder = $PWD/$T/Music|" $T/cfg/picoamp.ini
+sed -i "s|^view = .*|view = cover|" $T/cfg/picoamp.ini
+vol_before=$(sed -n 's/^volume = //p' $T/cfg/picoamp.ini)
+export PICOAMP_FAKE_MEDIA="Spotify|Fake Song|Fake Artist|Fake Album|200" PICOAMP_FAKE_ART=$PWD/$T/logo.jpg
+out=$(run "follow; wait 400; status; shot $T/follow.png 3; page; key Space; wait 300; status; key Space; key N; wait 300; status; key .; wait 300; status; key +; key H; key R; wait 300; status; key Down; key Down; key Enter; wait 1500; status")
+unset PICOAMP_FAKE_MEDIA PICOAMP_FAKE_ART
+check "follow: its track" "$out" "state=1 .*title='Fake Song' artist='Fake Artist' album='Fake Album' .*system=1 source='Spotify'"
+check "follow: its picture" "$out" "cover=ready"
+check "follow: Space pauses it" "$out" "state=2 .*title='Fake Song' .*system=1"
+check "follow: N its next track" "$out" "state=1 .*title='Fake Song 2' .*system=1"
+check "follow: > seeks in it" "$out" "elapsed=1[01]/200 .*title='Fake Song 2'"
+check "follow: its volume, shuffle and repeat" "$out" "vol=55 .*system=1 source='Spotify' mode=3"
+check "follow: a file here ends it" "$out" "title='Sine Café Song' .*system=0"
+[ "$(sed -n 's/^volume = //p' $T/cfg/picoamp.ini)" = "$vol_before" ] && echo "ok   follow: the player's own volume kept" || { echo "FAIL follow: the player's volume changed"; fail=1; }
+
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

@@ -32,6 +32,21 @@ and the window can be any size.
   By genre and By decade, from the free [Radio Browser](https://www.radio-browser.info) directory.
   * Lists load in the background, 60 stations at a time, with "More stations...".
   * `/` or `J` searches it by name.
+* **Spotify (and other players):** **Spotify & other players** at the top of the list makes PicoAmp
+  the remote and the screen of what another program plays, through Windows's own media controls (the
+  ones of the volume flyout): no account, no key, nothing to sign in to. Spotify is followed when it
+  runs, else the program Windows calls the current one (a browser, the Media Player, foobar2000 ...).
+  * Its title, artist, album, place in the track and its picture show as PicoAmp's own track: the cover
+    view, the full-screen cover (Z), the window's title. A track without a picture gets one from the
+    iTunes search, as a file without one does.
+  * The bars, the VU meters and the oscilloscope move on its sound: a loopback of the sound card,
+    of that program's sound only from Windows 10 build 20348 (Windows 11), else of all of the PC.
+  * The keys and the control row go to it: Space / > / || play and pause, N / P (and the media keys) the
+    next and previous track, , / . and the seek bar seek, H / R its shuffle and repeat, S pauses it.
+  * The volume and mute set the program's own volume in Windows's mixer (Spotify, and programs whose
+    `.exe` Windows names); PicoAmp's own volume is kept for its own music.
+  * Playing a file or a station in PicoAmp ends it. `PicoAmp.exe --follow` starts with it.
+  * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.
 * **The picture:** a 24-band spectrum analyser with falling peaks, VU meters and an oscilloscope (V).
 * **The cover (V a third time),** as PICOAMP on the MSX shows it: 80×80 pixels in MSX SCREEN 4 cells
   (two colours in every 8 pixels of a row) with five palette entries of its own for each row of cells

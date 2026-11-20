@@ -20,6 +20,7 @@
 #include "viz.h"
 #include "sys.h"
 #include "util.h"
+#include "nowplaying.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -29,8 +30,8 @@
 #define PREBUFFER    (48 * 1024)     // stream bytes before the sound starts
 #define REBUFFER     (32 * 1024)
 
-enum { SRC_NONE, SRC_FILE, SRC_STREAM };
-enum { C_FILES = 1, C_URL, C_PAUSE, C_STOP, C_NEXT, C_PREV, C_SEEK_REL, C_SEEK_TO };
+enum { SRC_NONE, SRC_FILE, SRC_STREAM, SRC_SYSTEM };
+enum { C_FILES = 1, C_URL, C_PAUSE, C_STOP, C_NEXT, C_PREV, C_SEEK_REL, C_SEEK_TO, C_SYSTEM };
 
 typedef struct { int type; int arg; char *url, *name; char **files; int n; } cmd_t;
 
@@ -78,6 +79,17 @@ static char       **pl;
 static int          pl_n, pl_pos;
 static int          volume = 80;
 static bool         muted;
+static int          own_mode;             // the player's shuffle / repeat (another program's while it is followed)
+
+// another program's music (SRC_SYSTEM): what it says, and the PC's sound for the bars
+static volatile bool following;           // (read by the screen's calls)
+static volatile bool sys_vol_known;       // the program's volume in the mixer is known
+static ma_device    loop_dev;
+static bool         loop_ok;
+static uint32_t     loop_pid;             // whose sound (0: all of the PC)
+static uint32_t     loop_tried;           // when the loopback was last tried
+static np_info      sys_now;
+static uint32_t     sys_polled;
 
 // ---------------- the device ----------------
 static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
@@ -155,6 +167,129 @@ static void set_error(const char *msg)
     st.err_gen++;
     st_changed();
     sys_unlock(st_lock);
+}
+
+// ---------------- another program (SRC_SYSTEM) ----------------
+// the PC's sound (only the program's own where Windows can: build 20348 and later), for the bars
+static void loop_cb(ma_device *d, void *out, const void *in, ma_uint32 frames)
+{
+    (void)out;
+    if (in && frames && following) viz_feed(in, frames, d->sampleRate);
+}
+
+static void loop_close(void)
+{
+    if (loop_ok) ma_device_uninit(&loop_dev);
+    loop_ok = false;
+}
+
+static void loop_open(uint32_t pid)
+{
+    loop_close();
+    loop_pid = pid;
+    loop_tried = sys_millis();
+    if (!dev_ok) return;
+    for (int pass = pid ? 0 : 1; pass < 2 && !loop_ok; pass++)
+    {
+        ma_device_config c = ma_device_config_init(ma_device_type_loopback);
+        c.capture.format = ma_format_s16;
+        c.capture.channels = 2;
+        c.sampleRate = 0;
+        c.periodSizeInMilliseconds = 10;
+        c.dataCallback = loop_cb;
+        c.wasapi.loopbackProcessID = pass ? 0 : pid;
+        if (ma_device_init(&ctx, &c, &loop_dev) == MA_SUCCESS)
+        {
+            loop_ok = true;
+            if (ma_device_start(&loop_dev) != MA_SUCCESS) loop_close();
+        }
+    }
+}
+
+static void sys_leave(void)
+{
+    if (!following) return;
+    following = false;
+    sys_vol_known = false;
+    np_end();
+    loop_close();
+    sys_lock(st_lock);
+    st.system = false;
+    st.source[0] = 0;
+    st.volume = volume;
+    st.muted = muted;
+    st.mode = own_mode;
+    st.seekable = false;
+    st.title[0] = st.artist[0] = st.album[0] = st.url[0] = 0;
+    st.state = ST_STOPPED;
+    st.elapsed = st.total = 0;
+    st.rate = st.channels = st.bitrate = 0;
+    st_changed();
+    sys_unlock(st_lock);
+}
+
+// what the program says now, as the player's status
+static void sys_poll(void)
+{
+    np_info i;
+    if (!np_get(&i)) return;
+    sys_now = i;
+    sys_vol_known = i.volume >= 0;
+    if (i.audio_pid != loop_pid || (!loop_ok && sys_millis() - loop_tried > 5000)) loop_open(i.audio_pid);
+    int rate = loop_ok ? (int)loop_dev.sampleRate : 0;
+    sys_lock(st_lock);
+    audio_status o = st;
+    st.system = true;
+    st.stream = st.buffering = st.tls = false;
+    st.buf_pct = 0;
+    st.state = i.state == NP_PLAYING ? ST_PLAYING : i.state == NP_PAUSED ? ST_PAUSED : ST_STOPPED;
+    u_copy(st.source, sizeof st.source, i.state == NP_NONE ? "" : i.app);
+    u_copy(st.title, sizeof st.title, i.title);
+    u_copy(st.artist, sizeof st.artist, i.state == NP_NONE ? "Start Spotify (or another player)" : i.artist);
+    u_copy(st.album, sizeof st.album, i.album);
+    snprintf(st.url, sizeof st.url, "system:%s", i.app);
+    st.elapsed = i.elapsed_ms / 1000;
+    st.total = i.total_ms / 1000;
+    st.seekable = i.can_seek && i.total_ms > 0;
+    st.rate = rate;
+    st.channels = rate ? 2 : 0;
+    st.bitrate = 0;
+    st.pl_pos = 0;
+    st.pl_count = 0;
+    st.mode = (i.shuffle ? MODE_SHUFFLE : 0) | (i.repeat != NP_REPEAT_OFF ? MODE_REPEAT : 0);
+    if (i.volume >= 0) { st.volume = i.volume; st.muted = i.muted; }
+    st.art_gen = i.art_gen;
+    unsigned g = st.gen;
+    st.gen = o.gen;
+    if (memcmp(&o, &st, sizeof st)) g++;
+    st.gen = g;
+    sys_unlock(st_lock);
+}
+
+static void close_source(void);
+static void flush_out(void);
+static void free_playlist(void);
+
+static void sys_enter(void)
+{
+    if (following) return;
+    close_source();
+    flush_out();
+    out_paused = false;
+    base_frames = 0;
+    free_playlist();
+    following = true;
+    np_start();
+    src = SRC_SYSTEM;
+    loop_pid = (uint32_t)-1;
+    sys_lock(st_lock);
+    st.system = true;
+    st.state = ST_STOPPED;
+    st.title[0] = st.artist[0] = st.album[0] = 0;
+    st.error[0] = 0;
+    st_changed();
+    sys_unlock(st_lock);
+    sys_polled = 0;
 }
 
 static void close_source(void)
@@ -430,8 +565,34 @@ static void seek_to(int sec)
     base_frames = target;
 }
 
+// a key while another program is followed: to it
+static void sys_cmd(cmd_t *c)
+{
+    switch (c->type)
+    {
+    case C_PAUSE:    np_cmd(NP_TOGGLE, 0); break;
+    case C_STOP:     np_cmd(NP_PAUSE, 0); break;          // (it stops by pausing: the track stays)
+    case C_NEXT:     np_cmd(NP_NEXT, 0); break;
+    case C_PREV:     np_cmd(NP_PREV, 0); break;
+    case C_SEEK_REL:
+    {
+        int ms = sys_now.elapsed_ms + c->arg * 1000;
+        if (sys_now.total_ms && ms >= sys_now.total_ms) ms = sys_now.total_ms - 1000;
+        np_cmd(NP_SEEK_TO, ms < 0 ? 0 : ms);
+        break;
+    }
+    case C_SEEK_TO:  np_cmd(NP_SEEK_TO, c->arg * 1000); break;
+    }
+}
+
 static void do_cmd(cmd_t *c)
 {
+    if (c->type == C_SYSTEM) { sys_enter(); return; }
+    if (following)
+    {
+        if (c->type == C_FILES || c->type == C_URL) sys_leave();
+        else { sys_cmd(c); free(c->url); free(c->name); return; }
+    }
     switch (c->type)
     {
     case C_FILES:
@@ -618,6 +779,12 @@ static int dec_main(void *arg)
     while (!quit)
     {
         take_cmds();
+        if (src == SRC_SYSTEM)
+        {
+            if (sys_millis() - sys_polled >= 100) { sys_polled = sys_millis(); sys_poll(); }
+            sys_sleep_ms(10);
+            continue;
+        }
         if (src == SRC_NONE || out_paused) { sys_sleep_ms(10); continue; }
         if (src == SRC_STREAM)
         {
@@ -801,6 +968,7 @@ void audio_shutdown(void)
     quit = true;
     dec_abort = true;
     sys_thread_join(dec_thread);
+    if (following) { np_end(); loop_close(); }
     if (dev_ok) ma_device_uninit(&dev);
     ma_context_uninit(&ctx);
     ma_pcm_rb_uninit(&rb);
@@ -834,6 +1002,8 @@ void audio_play_url(const char *url, const char *name)
 }
 
 static void simple(int type, int arg) { cmd_t c = { type, arg, NULL, NULL, NULL, 0 }; post(c); }
+void audio_follow_system(void) { simple(C_SYSTEM, 0); }
+bool audio_system_supported(void) { return np_supported(); }
 void audio_toggle_pause(void) { simple(C_PAUSE, 0); }
 void audio_stop(void)         { simple(C_STOP, 0); }
 void audio_next(void)         { simple(C_NEXT, 0); }
@@ -845,6 +1015,16 @@ void audio_set_volume(int v)
 {
     if (v < 0) v = 0;
     if (v > 100) v = 100;
+    if (following && sys_vol_known)
+    {
+        // the program's own volume in the mixer
+        np_volume(v, st.muted);
+        sys_lock(st_lock);
+        st.volume = v;
+        st_changed();
+        sys_unlock(st_lock);
+        return;
+    }
     volume = v;
     apply_gain();
     sys_lock(st_lock);
@@ -855,6 +1035,15 @@ void audio_set_volume(int v)
 
 void audio_set_mute(bool m)
 {
+    if (following && sys_vol_known)
+    {
+        np_volume(st.volume, m);
+        sys_lock(st_lock);
+        st.muted = m;
+        st_changed();
+        sys_unlock(st_lock);
+        return;
+    }
     muted = m;
     apply_gain();
     sys_lock(st_lock);
@@ -877,6 +1066,19 @@ void audio_set_balance(int b)
 
 void audio_set_mode(int mode)
 {
+    if (following)
+    {
+        // the program's shuffle and repeat (repeat: of its list)
+        int was = st.mode;
+        if ((mode ^ was) & MODE_SHUFFLE) np_cmd(NP_SHUFFLE, (mode & MODE_SHUFFLE) != 0);
+        if ((mode ^ was) & MODE_REPEAT) np_cmd(NP_REPEAT, (mode & MODE_REPEAT) ? NP_REPEAT_LIST : NP_REPEAT_OFF);
+        sys_lock(st_lock);
+        st.mode = mode;
+        st_changed();
+        sys_unlock(st_lock);
+        return;
+    }
+    own_mode = mode;
     sys_lock(st_lock);
     st.mode = mode;
     st_changed();

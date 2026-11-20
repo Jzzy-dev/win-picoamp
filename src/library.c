@@ -7,6 +7,7 @@
 #include "sys.h"
 #include "util.h"
 #include "radiodir.h"
+#include "nowplaying.h"
 
 #define FAV_FILE "Favourites.m3u"
 
@@ -145,6 +146,7 @@ int lib_open(lib_list *l, const char *place)
         u_copy(l->title, sizeof l->title, "/");
         add(l, E_FOLDER, "Internet radio", "radio:");
         if (cfg.music_dir[0] && sys_is_dir(cfg.music_dir)) add(l, E_FOLDER, "Music", cfg.music_dir);
+        if (np_supported()) add(l, E_SYSTEM, "Spotify & other players", "system:");
         char d[26];
         int n = sys_drives(d);
         for (int i = 0; i < n; i++)

@@ -445,6 +445,7 @@ static void alarm_set(const char *s)
     else h = atoi(p), m = 0;
     if (h < 0 || h > 23 || m < 0 || m > 59) { note("The alarm's time: HH:MM", true); return; }
     if (ui_st.state != ST_PLAYING || !ui_st.url[0]) { note("Play the station for the alarm first", true); return; }
+    if (ui_st.system) { note("The alarm plays PicoAmp's own music: a station or a file", true); return; }
     cfg.alarm_on = true;
     cfg.alarm_h = h;
     cfg.alarm_m = m;

@@ -29,6 +29,9 @@ typedef struct
     char url[2048];          // the station that plays (or the file)
     char error[160];         // the last error (shown once: err_gen)
     unsigned err_gen;
+    bool system;             // another program's music (Spotify ...): audio_follow_system()
+    char source[64];         // that program ("Spotify")
+    unsigned art_gen;        // system: +1 when its picture changes (np_art)
 } audio_status;
 
 bool audio_init(bool null_device);
@@ -39,6 +42,11 @@ void audio_play_files(const char *const *files, int count, int start);
 void audio_play_url(const char *url, const char *name);
 // a list's stations: the play list (N / P the next / previous station)
 void audio_play_stations(const char *const *urls, const char *const *names, int count, int start);
+// follow what another program of the PC plays (Spotify first; nowplaying.h): its
+// track is the player's, the keys go to it, the bars move on the PC's sound.
+// Playing a file or a station here ends it.
+void audio_follow_system(void);
+bool audio_system_supported(void);
 void audio_toggle_pause(void);
 void audio_stop(void);
 void audio_next(void);
