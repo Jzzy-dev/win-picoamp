@@ -55,8 +55,10 @@ and the window can be any size.
   private networks).
   * The MSX hears it as an internet radio station: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of
     what is heard here, with the song in its titles; silence while nothing plays, so the station stays.
-  * The MSX's SPACE, N and P come back here (`/cmd`): pause, next and previous, also for Spotify.
-  * The cover goes to the MSX as it wants it: 80 × 80, baseline JPEG (`/cover.jpg`).
+  * The MSX's keys come back here (`/cmd`): SPACE, N, P (pause, next, previous), `,` `.` (seeking), H and R
+    (shuffle, repeat), also for Spotify.
+  * The cover goes to the MSX as it wants it: 80 × 80, baseline JPEG (`/cover.jpg`); for its full screen
+    cover (Z) as big as fits 281 × 192 (`/cover.jpg?w=281&h=192`).
   * `/now` says what plays (JSON); `/picoamp.m3u` is a station list with the stream.
   * The MSX plays a few seconds behind (its buffer): turn this PC's speakers down. PicoAmp's own mute (M)
     mutes only this PC: the MSX still gets the sound.

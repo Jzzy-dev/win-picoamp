@@ -266,7 +266,7 @@ check "lyrics: instrumental" "$out" "lyrics state=instrumental"
 # the MSX link (K): the stream (MP3 frames in time, the song in its ICY titles), the keys back, what
 # plays, the cover (80 x 80 JPEG), the station list; another program's music, then a file's
 sed -i "s|^msx_port = .*|msx_port = 18777|" $T/cfg/picoamp.ini
-python3 tests/msx_client.py 18777 6 next prev toggle > $T/msx.log 2>&1 &
+python3 tests/msx_client.py 18777 7 next prev toggle 'shuffle&on=1' > $T/msx.log 2>&1 &
 CLI=$!
 export PICOAMP_FAKE_MEDIA="Spotify|Fake Song|Fake Artist|Fake Album|200" PICOAMP_FAKE_ART=$PWD/$T/logo.jpg
 out=$(run "msxlink on; follow; wait 9000; status")
@@ -280,7 +280,9 @@ check "msx link: N on the MSX: the next song here" "$msx" "meta: StreamTitle='Fa
 check "msx link: MP3 frames, one after the other" "$msx" "frames in a row: [1-9][0-9][0-9], kbps/rate: \[(160, 44100)\]"
 check "msx link: pause on the MSX pauses it here" "$out" "state=2 .*title='Fake Song' .*system=1"
 check "msx link: what plays" "$msx" "now: 200 {\"state\":\"paused\",\"title\":\"Fake Song\""
-check "msx link: the cover, 80 x 80" "$msx" "cover: 200 [0-9]* bytes jpeg=True"
+check "msx link: the cover, 80 x 80" "$msx" "cover size: 80x80"
+check "msx link: the full screen's cover, fits 281 x 192" "$msx" "big cover: 200 [0-9]* bytes, 192x192"
+check "msx link: shuffle on the MSX: shuffle here" "$msx" '"shuffle":true'
 check "msx link: the station list" "$msx" "m3u: 200 #EXTM3U .*:18777/stream.mp3"
 python3 tests/msx_client.py 18777 4 > $T/msx2.log 2>&1 &
 CLI=$!

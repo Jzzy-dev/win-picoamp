@@ -102,5 +102,19 @@ if st == 200:
         open('msx_cover.jpg', 'wb').write(body)
     except OSError:
         pass
+def jpeg_size(b):
+    i = 2
+    while i + 9 < len(b):
+        if b[i] != 0xFF:
+            return None
+        m, ln = b[i + 1], b[i + 2] << 8 | b[i + 3]
+        if m in (0xC0, 0xC1, 0xC2):
+            return '%dx%d%s' % (b[i + 7] << 8 | b[i + 8], b[i + 5] << 8 | b[i + 6], ' progressive' if m == 0xC2 else '')
+        i += 2 + ln
+    return None
+st, h, body = get('/cover.jpg')
+print('cover size:', jpeg_size(body) if st == 200 else None)
+st, h, body = get('/cover.jpg?w=281&h=192')
+print('big cover: %d %d bytes, %s' % (st, len(body), jpeg_size(body) if st == 200 else None))
 st, h, body = get('/picoamp.m3u')
 print('m3u: %d %s' % (st, body.decode().replace('\r\n', ' | ')))

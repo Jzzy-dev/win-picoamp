@@ -992,6 +992,7 @@ void ui_msx_link(bool on)
 void ui_frame(void)
 {
     audio_status_get(&st);
+    if (!st.system) cfg.mode = st.mode;     // (the MSX link may have changed it)
     msxlink_tick();
     viz_poll(st.state == ST_PLAYING && !st.buffering, &viz);
     clock_service_tick();
@@ -1040,9 +1041,9 @@ void ui_eq_next(void) { set_eq_preset(eq_preset >= EQ_PRESETS ? 0 : eq_preset + 
 // followed program's (its shuffle and repeat, its volume in the mixer)
 static void toggle_mode(int bit)
 {
-    if (st.system) { audio_set_mode(st.mode ^ bit); return; }
-    cfg.mode ^= bit;
-    audio_set_mode(cfg.mode);
+    int m = st.mode ^ bit;
+    if (!st.system) cfg.mode = m;
+    audio_set_mode(m);
 }
 
 static int vol_now(void) { return st.system ? st.volume : cfg.volume; }

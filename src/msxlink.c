@@ -80,8 +80,8 @@ static uint8_t     *mp3;
 static uint64_t     mp3_total;
 
 // the cover, made for the MSX
-static uint8_t     *cover_jpg;
-static size_t       cover_len;
+static uint8_t     *cover_jpg, *cover_big;     // 80 x 80 on navy; the full screen's (fits 281 x 192, as it is)
+static size_t       cover_len, cover_big_len;
 static unsigned     cover_n, cover_seen = ~0u;
 
 const char *msxlink_error(void) { return err; }
@@ -233,7 +233,7 @@ static int j_out(JDEC *jd, void *bitmap, JRECT *r)
 }
 
 // a picture's pixels (JPEG: TJpgDec, made small while decoding; else Windows's decoder)
-static uint8_t *decode(const uint8_t *data, size_t len, int *w, int *h)
+static uint8_t *decode(const uint8_t *data, size_t len, int *w, int *h, int min_px)
 {
     static uint8_t work[TJPGD_WORKSPACE_SIZE + 64];
     jsrc s = { data, len, 0, NULL, 0 };
@@ -242,28 +242,33 @@ static uint8_t *decode(const uint8_t *data, size_t len, int *w, int *h)
     {
         uint8_t sc = 0;
         unsigned m = jd.width < jd.height ? jd.width : jd.height;
-        while (sc < 3 && (m >> (sc + 1)) >= COVER_PX) sc++;
+        while (sc < 3 && (m >> (sc + 1)) >= (unsigned)min_px) sc++;
         s.w = (int)((jd.width + (1u << sc) - 1) >> sc);
         int hh = (int)((jd.height + (1u << sc) - 1) >> sc);
         s.rgb = calloc((size_t)s.w * (size_t)hh, 3);
         if (s.rgb && jd_decomp(&jd, j_out, sc) == JDR_OK) { *w = s.w; *h = hh; return s.rgb; }
         free(s.rgb);
     }
-    return plat_decode_rgb(data, len, 4 * COVER_PX, 4 * COVER_PX, w, h);
+    return plat_decode_rgb(data, len, 2 * min_px > 320 ? 2 * min_px : 320, 2 * min_px > 320 ? 2 * min_px : 320, w, h);
 }
 
-// 80 x 80: the picture made to fit (box filter), on the player's navy
-static uint8_t *cover_for_msx(const uint8_t *data, size_t len, size_t *out_len)
+// the picture made to fit mw x mh (box filter): pad: on the player's navy, mw x mh (the cover view's);
+// else as big as fits (the full screen's, as the engine's image proxy makes it: fit=inside)
+static uint8_t *cover_for_msx(const uint8_t *data, size_t len, int mw, int mh, bool pad, size_t *out_len)
 {
     int w = 0, h = 0;
-    uint8_t *px = decode(data, len, &w, &h);
+    uint8_t *px = decode(data, len, &w, &h, mh);
     if (!px) return NULL;
-    uint8_t *c = malloc(COVER_PX * COVER_PX * 3);
+    double f = (double)mw / w;
+    if ((double)mh / h < f) f = (double)mh / h;
+    int dw = (int)(w * f + 0.5), dh = (int)(h * f + 0.5);
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    int cw = pad ? mw : dw, ch = pad ? mh : dh, ox = (cw - dw) / 2, oy = (ch - dh) / 2;
+    uint8_t *c = malloc((size_t)cw * (size_t)ch * 3);
     if (!c) { free(px); return NULL; }
     uint32_t navy = gfx_pal_base[NAVY];
-    for (int i = 0; i < COVER_PX * COVER_PX; i++) { c[3 * i] = (uint8_t)(navy >> 16); c[3 * i + 1] = (uint8_t)(navy >> 8); c[3 * i + 2] = (uint8_t)navy; }
-    double f = (double)COVER_PX / (w > h ? w : h);
-    int dw = (int)(w * f + 0.5), dh = (int)(h * f + 0.5), ox = (COVER_PX - dw) / 2, oy = (COVER_PX - dh) / 2;
+    for (int i = 0; i < cw * ch; i++) { c[3 * i] = (uint8_t)(navy >> 16); c[3 * i + 1] = (uint8_t)(navy >> 8); c[3 * i + 2] = (uint8_t)navy; }
     for (int y = 0; y < dh; y++)
         for (int x = 0; x < dw; x++)
         {
@@ -279,11 +284,11 @@ static uint8_t *cover_for_msx(const uint8_t *data, size_t len, size_t *out_len)
                     const uint8_t *p = px + ((size_t)yy * (size_t)w + (size_t)xx) * 3;
                     r += p[0]; g += p[1]; b += p[2]; k++;
                 }
-            uint8_t *d = c + ((size_t)(oy + y) * COVER_PX + (size_t)(ox + x)) * 3;
+            uint8_t *d = c + ((size_t)(oy + y) * (size_t)cw + (size_t)(ox + x)) * 3;
             if (k) { d[0] = (uint8_t)(r / k); d[1] = (uint8_t)(g / k); d[2] = (uint8_t)(b / k); }
         }
     free(px);
-    uint8_t *j = jpeg_encode(c, COVER_PX, COVER_PX, COVER_PX * 3, 75, out_len);
+    uint8_t *j = jpeg_encode(c, cw, ch, cw * 3, 75, out_len);
     free(c);
     return j;
 }
@@ -304,12 +309,17 @@ void msxlink_tick(void)
     if (g == cover_seen || cover_state() == COVER_MAKING) return;
     cover_seen = g;
     const uint8_t *d;
-    size_t n, jl = 0;
-    uint8_t *j = cover_source(&d, &n) ? cover_for_msx(d, n, &jl) : NULL;
+    size_t n, jl = 0, bl = 0;
+    bool src = cover_source(&d, &n);
+    uint8_t *j = src ? cover_for_msx(d, n, COVER_PX, COVER_PX, true, &jl) : NULL;
+    uint8_t *b = src ? cover_for_msx(d, n, 281, 192, false, &bl) : NULL;
     sys_lock(lock);
     free(cover_jpg);
+    free(cover_big);
     cover_jpg = j;
     cover_len = j ? jl : 0;
+    cover_big = b;
+    cover_big_len = b ? bl : 0;
     cover_n++;
     sys_unlock(lock);
 }
@@ -481,6 +491,15 @@ static int client_main(void *arg)
         else if (!strcmp(k, "pause")) { if (st.state == ST_PLAYING) audio_toggle_pause(); }
         else if (!strcmp(k, "next")) audio_next();
         else if (!strcmp(k, "prev")) audio_prev();
+        else if (!strcmp(k, "shuffle") || !strcmp(k, "repeat"))
+        {
+            // on=0 off, else on (repeat: 1 the list, 2 the track: both the player's repeat)
+            int bit = k[0] == 's' ? MODE_SHUFFLE : MODE_REPEAT;
+            query(path, "on", v, sizeof v);
+            int m = atoi(v) ? (st.mode | bit) : (st.mode & ~bit);
+            if (v[0] && m != st.mode) audio_set_mode(m);
+            ok = v[0] != 0;
+        }
         else if (!strcmp(k, "seek"))
         {
             query(path, "s", v, sizeof v);
@@ -489,7 +508,7 @@ static int client_main(void *arg)
         }
         else ok = false;
         if (ok) send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
-        else send_text(s, "400 Bad Request", "text/plain", "k: toggle play pause next prev seek\n", 36, NULL);
+        else send_text(s, "400 Bad Request", "text/plain", "k: toggle play pause next prev seek shuffle repeat\n", 51, NULL);
     }
     else if (!strcmp(p0, "/now"))
     {
@@ -507,18 +526,25 @@ static int client_main(void *arg)
         char e[400];
         json_str(e, sizeof e, err);
         int n = snprintf(b, sizeof b, "{\"state\":\"%s\",\"title\":%s,\"artist\":%s,\"album\":%s,\"source\":%s,"
-                                      "\"elapsed\":%d,\"total\":%d,\"cover\":%u,\"has_cover\":%s,\"listeners\":%d,\"error\":%s}\n",
+                                      "\"elapsed\":%d,\"total\":%d,\"cover\":%u,\"has_cover\":%s,\"listeners\":%d,\"shuffle\":%s,\"repeat\":%s,\"error\":%s}\n",
                          st.state == ST_PLAYING ? "playing" : st.state == ST_PAUSED ? "paused" : "stopped",
-                         t, a, al, src, st.elapsed, st.total, cg, hc ? "true" : "false", listeners, e);
+                         t, a, al, src, st.elapsed, st.total, cg, hc ? "true" : "false", listeners,
+                         (st.mode & MODE_SHUFFLE) ? "true" : "false", (st.mode & MODE_REPEAT) ? "true" : "false", e);
         send_text(s, "200 OK", "application/json", b, (size_t)n, NULL);
     }
     else if (!strcmp(p0, "/cover.jpg"))
     {
+        // ?w=281&h=192 (or anything wider than 80): the full screen's, else the cover view's
+        char wv[16];
+        query(path, "w", wv, sizeof wv);
+        bool big = atoi(wv) > COVER_PX;
         sys_lock(lock);
-        uint8_t *c = cover_len ? malloc(cover_len) : NULL;
-        size_t n = c ? cover_len : 0;
+        uint8_t *from = big ? cover_big : cover_jpg;
+        size_t fl = big ? cover_big_len : cover_len;
+        uint8_t *c = fl ? malloc(fl) : NULL;
+        size_t n = c ? fl : 0;
         unsigned cg = cover_n;
-        if (c) memcpy(c, cover_jpg, n);
+        if (c) memcpy(c, from, n);
         sys_unlock(lock);
         char x[48];
         snprintf(x, sizeof x, "X-Cover-Gen: %u\r\n", cg);

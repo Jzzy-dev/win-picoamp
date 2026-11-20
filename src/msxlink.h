@@ -5,8 +5,9 @@
 // and through it to Spotify when it follows Spotify).
 //
 //   http://<this PC>:<port>/stream.mp3   the sound (MP3, ICY titles; the reply has X-PicoAmp: 1)
-//   /cover.jpg                           the cover, 80 x 80, baseline JPEG (X-Cover-Gen: n)
-//   /cmd?k=toggle|play|pause|next|prev|seek&s=+-seconds|to=seconds
+//   /cover.jpg                           the cover, 80 x 80, baseline JPEG (X-Cover-Gen: n);
+//                                        ?w=281&h=192: the full screen's (fits 281 x 192)
+//   /cmd?k=toggle|play|pause|next|prev|seek&s=+-seconds|to=seconds|shuffle&on=0/1|repeat&on=0/1/2
 //   /now                                 what plays (JSON)
 //   /picoamp.m3u                         a station list with the stream, for the card
 #pragma once
