@@ -84,8 +84,11 @@ and the window can be any size.
     version is the right one. A station's song (from its title) is asked by artist and title, and is
     timed from when its title is heard. Stations send titles a bit early or late, so `[` and `]` move
     the words half a second, and `0` puts them right again.
+  * Tuned in during a song, a station's song has no known time: the page says **ENTER: SYNC** and
+    lights no line. Move the line that is sung now onto the band in the middle (Up/Down) and press
+    **Enter**: the words follow from there. Enter does that any time the timing is off.
   * What was found is kept in `%APPDATA%\PicoAmp\Lyrics`. When nothing was found, that is kept for
-    a week.
+    a week; **R** forgets it and looks again.
   * Not every song is there: well-known songs mostly are, rarer ones and many non-English ones not.
 * **The picture:** a 24-band spectrum analyser with falling peaks, VU meters and an oscilloscope (V).
 * **The cover (V a third time),** as PICOAMP on the MSX shows it: 80×80 pixels in MSX SCREEN 4 cells
@@ -198,8 +201,8 @@ story. In My feeds: Enter, D, U/J move, and A adds an address.
 **Markets:** Up/Down choose, Left/Right the list, Enter the chart, I an index's members (BS back), O the
 order, U update now, 1 2 3 the region. In the chart: Left/Right the range, Up/Down the next one, T its
 headlines in the news reader, Enter/BS/ESC the list.
-**Lyrics:** Up/Down and the wheel scroll, Home follows the song again, `[` / `]` the timing -/+ 0.5 s,
-`0` puts it right, L/Esc back.
+**Lyrics:** Up/Down and the wheel scroll, Home follows the song again, Enter: the line on the middle band
+is sung now (synced by hand), `[` / `]` the timing -/+ 0.5 s, `0` puts it right, R looks again, L/Esc back.
 **Equalizer:** Left/Right picks a band or the balance, Up/Down changes it, 0 resets it.
 **Pictures:** Enter shows a picture or opens a folder, Backspace the folder above (and the drives),
 Space marks, A all, G slideshow, O screensaver, R interval, U shuffle, F the screensaver's folder,

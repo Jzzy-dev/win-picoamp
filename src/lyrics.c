@@ -422,6 +422,15 @@ void lyrics_want(const char *artist, const char *title, const char *album, int s
     else { free(j); cur.state = LY_FAILED; u_copy(cur.error, sizeof cur.error, "No lyrics: no thread"); }
 }
 
+void lyrics_again(void)
+{
+    if (!want_key[0]) return;
+    char path[1200];
+    cache_path(path, sizeof path, want_key);
+    sys_delete(path);
+    want_key[0] = 0;                // (asked again by the next lyrics_want)
+}
+
 int lyrics_state(void)
 {
     if (lock && cur.state == LY_LOADING)

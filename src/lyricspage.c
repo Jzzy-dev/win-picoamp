@@ -10,7 +10,10 @@
 // A file and another program (Spotify ...) know where the song is; a
 // station's song is timed from when its title came, as heard: [ and ] move
 // the words' clock half a second back or on (stations send their titles a
-// little early or late), 0 puts it right again.
+// little early or late), 0 puts it right again. A station tuned in during a
+// song does not know how far it is: ENTER: SYNC, no line lit; the keys move
+// a line onto the band in the middle and Enter makes it the one sung now
+// (any time the timing is off). R looks for the words again.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,9 +35,11 @@ typedef struct { int line, off, len; } wrow;
 static wrow    *rows;
 static int      nrows, rows_cap;
 static int      top;            // the first row shown
-static int      manual_top = -1;
+static int      manual_top = -1 - NOW_ROW;   // (-1 - NOW_ROW: not moved by hand)
 static uint32_t manual_until;
 static int      offset_ms;      // [ / ]: the words earlier / later
+static bool     by_hand;        // synced with Enter (a station's song joined in it is timed then)
+static char     song_key[600];  // the song the offset and by_hand are for
 
 // the lines in rows of the page (words wrapped)
 static void wrap(void)
@@ -89,19 +94,33 @@ static void follow(void)
 
 static int now_ms(void) { return ui_st.elapsed_ms + offset_ms; }
 
-static void ly_open(void) { manual_top = -1; }
+// a new song: its own timing
+static void song_check(void)
+{
+    char k[sizeof song_key];
+    snprintf(k, sizeof k, "%s\x1f%s", ui_st.artist, ui_st.title);
+    if (strcmp(k, song_key)) { u_copy(song_key, sizeof song_key, k); offset_ms = 0; by_hand = false; manual_top = -1 - NOW_ROW; }
+}
+
+// not timed: a station's song joined in it, not synced with Enter yet
+static bool untimed(void) { return ui_st.untimed && !by_hand; }
+
+static void ly_open(void) { manual_top = -1 - NOW_ROW; }
 
 static void ly_frame(void)
 {
     follow();
+    song_check();
     int state = lyrics_state();
+    bool unt = state == LY_SYNCED && untimed();
     gfx_clear(NAVY);
     ui_row0(0, 0, 32, COL(WHITE, NAVY));
     gfx_fill(1, 0, 32, COL(WHITE, BLUE_D));
     gfx_text6(1, 0, 10, " LYRICS", COL(YELLOW, BLUE_D), 0, 0);
     const char *how = state == LY_SYNCED ? "SYNCED" : state == LY_PLAIN ? "NOT SYNCED" : "";
     char right[64];
-    if (state == LY_SYNCED && offset_ms) snprintf(right, sizeof right, "%s  %+d.%dS", how, offset_ms / 1000, abs(offset_ms) % 1000 / 100);
+    if (unt) u_copy(right, sizeof right, "ENTER: SYNC");
+    else if (state == LY_SYNCED && offset_ms) snprintf(right, sizeof right, "%s  %+d.%dS", how, offset_ms / 1000, abs(offset_ms) % 1000 / 100);
     else u_copy(right, sizeof right, how);
     gfx_text6(1, 10, 22, right, COL(CYAN, BLUE_D), 0, 0);
 
@@ -115,8 +134,9 @@ static void ly_frame(void)
     case LY_FAILED:       msg = lyrics_error(); break;
     }
     const char *note = ui_note_text();
-    const char *keys = state == LY_SYNCED ? "[ ] timing -/+  Up/Down  L back"
-                     : state == LY_PLAIN ? "Up/Down scroll  L or ESC back" : "L or ESC back";
+    const char *keys = unt ? "Up/Down: the line sung, Enter: sync  R again"
+                     : state == LY_SYNCED ? "Enter sync  [ ] -/+  Up/Down  R again"
+                     : state == LY_PLAIN ? "Up/Down scroll  R again  L back" : "R look again  L or ESC back";
     gfx_text6(23, 0, 32, note[0] ? note : keys, note[0] && ui_note_error() ? COL(RED, NAVY) : COL(GREY, NAVY), 0, 0);
     gfx_text6(22, 0, 32, "Words: LRCLIB.net", COL(GREY_D, NAVY), 0, 0);
     if (msg)
@@ -127,12 +147,14 @@ static void ly_frame(void)
     }
 
     wrap();
-    int sung = state == LY_SYNCED ? lyrics_at(now_ms()) : -1;
+    int sung = state == LY_SYNCED && !unt ? lyrics_at(now_ms()) : -1;
     uint32_t t = sys_millis();
-    if (manual_top >= 0 && (int32_t)(t - manual_until) < 0) top = manual_top;
+    if (unt && manual_top < -NOW_ROW) { manual_top = -NOW_ROW; manual_until = t + 0x7FFFFFFFu; }
+    bool manual = manual_top >= -NOW_ROW && (unt || (int32_t)(t - manual_until) < 0);
+    if (manual) top = manual_top;
     else
     {
-        manual_top = -1;
+        manual_top = -1 - NOW_ROW;
         if (state == LY_SYNCED)
         {
             // the line sung now on NOW_ROW (before the first: the first there)
@@ -163,6 +185,7 @@ static void ly_frame(void)
         {
             if (rows[i].line == sung) { fg = YELLOW; bg = BLUE_D; }
             else if (rows[i].line < sung) fg = GREY;
+            if (manual && r == NOW_ROW) bg = BLUE_D;        // (the line Enter syncs to)
         }
         if (bg != NAVY) gfx_fill(TOP + r, 0, 32, COL(fg, bg));
         if (!buf[0] && state == LY_SYNCED && rows[i].line == sung) u_copy(buf, sizeof buf, "...");
@@ -174,12 +197,29 @@ static void ly_frame(void)
 static void scroll(int d)
 {
     if (nrows <= 0) return;
-    int base = manual_top >= 0 ? manual_top : top;
+    int base = manual_top >= -NOW_ROW ? manual_top : top;
     base += d;
+    int lo = lyrics_state() == LY_SYNCED ? -NOW_ROW : 0;
     if (base > nrows - 1) base = nrows - 1;
-    if (base < 0) base = 0;
+    if (base < lo) base = lo;
     manual_top = base;
-    manual_until = sys_millis() + MANUAL_MS;
+    manual_until = sys_millis() + (untimed() ? 0x7FFFFFFFu : MANUAL_MS);
+}
+
+// Enter: the line on the band in the middle is sung now
+static bool sync_here(void)
+{
+    if (lyrics_state() != LY_SYNCED || nrows <= 0) return false;
+    int r = top + NOW_ROW;
+    if (r < 0) r = 0;
+    if (r >= nrows) r = nrows - 1;
+    int ms = -1;
+    lyrics_line(rows[r].line, &ms);
+    if (ms < 0) return false;
+    offset_ms = ms - ui_st.elapsed_ms;
+    by_hand = true;
+    manual_top = -1 - NOW_ROW;
+    return true;
 }
 
 static void ly_key(int k)
@@ -187,13 +227,15 @@ static void ly_key(int k)
     int u = (k >= 'a' && k <= 'z') ? k - 32 : k;
     switch (u)
     {
-    case K_ESC: case K_ENTER: case K_BS: case 'L': ui_page(PG_PLAYER); return;
+    case K_ENTER: if (sync_here()) return; ui_page(PG_PLAYER); return;
+    case K_ESC: case K_BS: case 'L': ui_page(PG_PLAYER); return;
+    case 'R': lyrics_again(); manual_top = -1 - NOW_ROW; return;
     case 'Z': ui_page(PG_FULL); return;
     case K_UP: scroll(-1); return;
     case K_DOWN: scroll(1); return;
     case K_PGUP: case K_LEFT: scroll(-ROWS / 2); return;
     case K_PGDN: case K_RIGHT: scroll(ROWS / 2); return;
-    case K_HOME: manual_top = -1; return;
+    case K_HOME: manual_top = -1 - NOW_ROW; return;
     case '[': offset_ms -= 500; return;
     case ']': offset_ms += 500; return;
     case '0': offset_ms = 0; return;

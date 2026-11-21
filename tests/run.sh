@@ -257,6 +257,9 @@ asked=$(grep -c "lrclib get Unit Tester" $T/web.log)
 out=$(run "key Down; key Down; key Enter; wait 300; key L; wait 200; page")
 check "lyrics: kept" "$out" "lyrics state=synced lines=6"
 [ "$(grep -c "lrclib get Unit Tester" $T/web.log)" = "$asked" ] && echo "ok   lyrics: not asked again" || { echo "FAIL lyrics: asked again"; fail=1; }
+out=$(run "key Down; key Down; key Enter; wait 300; key L; wait 300; key R; wait 400; page; key Down; key Down; key Down; key Enter; page")
+[ "$(grep -c "lrclib get Unit Tester" $T/web.log)" -gt "$asked" ] && echo "ok   lyrics: R looks again" || { echo "FAIL lyrics: R did not look again"; fail=1; }
+check "lyrics: Enter: the line in the middle is sung now" "$out" "lyrics state=synced lines=6 at=2 line='Caf"
 export PICOAMP_FAKE_MEDIA="Spotify|Fake Song|Fake Artist|Fake Album|200"
 out=$(run "follow; wait 300; key L; wait 500; shot $T/lyrics2.png 3; page; key N; wait 700; page")
 unset PICOAMP_FAKE_MEDIA

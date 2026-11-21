@@ -75,6 +75,7 @@ static aacdec      *aac;                  // an AAC station: Windows' decoder
 static unsigned char aac_buf[8192];       // ADTS bytes not yet a whole frame
 static size_t       aac_have;
 static unsigned     strm_meta_seen;
+static bool         strm_meta_any;      // a title came since the station began (the next one is a song's start)
 static char       **pl;
 static int          pl_n, pl_pos;
 static int          volume = 80;
@@ -510,6 +511,7 @@ static void open_url(const char *url, const char *name)
     base_frames = 0;
     strm = stream_start(url);
     strm_meta_seen = 0;
+    strm_meta_any = false;
     s_hist_len = s_pos = 0;
     src = SRC_STREAM;
     out_paused = false;
@@ -780,6 +782,8 @@ static void stream_poll(void)
     {
         strm_meta_seen = si.meta_gen;
         split_stream_title(si.title);
+        st.untimed = !strm_meta_any;
+        strm_meta_any = true;
         // the song is heard when what is buffered now has played
         song_base_ms = elapsed_now_ms() + (si.bitrate > 0 ? (int64_t)have * 8 / si.bitrate : 0)
                      + (int64_t)ma_pcm_rb_available_read(&rb) * 1000 / dev_rate;
@@ -1132,5 +1136,6 @@ void audio_status_get(audio_status *out)
     }
     else st.elapsed_ms = st.elapsed * 1000;
     *out = st;
+    out->untimed = src == SRC_STREAM && st.untimed;
     sys_unlock(st_lock);
 }
