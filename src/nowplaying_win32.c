@@ -142,7 +142,9 @@ static DWORD   art_at[2];           // when to read the picture (0: not)
 static bool    art_first;           // the first read for this track: shown even if the same bytes
 static WCHAR   exe[MAX_PATH];       // the program's .exe ("Spotify.exe"), for the mixer and the loopback
 static WCHAR   pkg[MAX_PATH];       // a Store program's package ("Microsoft.ZuneMusic"): its sessions in the mixer name it
-static DWORD   sess_pid;            // the process the mixer showed for it
+static DWORD   sess_pid;
+static WCHAR   toks[6][64];         // the id's words that may be its .exe's name ("TIDAL", "SoundCloud")
+static int     ntoks;            // the process the mixer showed for it
 static DWORD   pids[256];        // (a browser has many)
 static int     npids;
 static DWORD   root_pid;
@@ -178,6 +180,9 @@ static void app_name(const char *id, char *name, size_t n)
         e[0] = 0;
         for (size_t i = 0; i < sizeof br / sizeof br[0] && !e[0]; i++)
             if (!_strnicmp(id, br[i].id, strlen(br[i].id))) { u_copy(e, sizeof e, br[i].exe); u_copy(name, n, br[i].name); }
+        // an Electron app's id from its installer ("com.squirrel.TIDAL.TIDAL"): its .exe is the last word
+        if (!e[0] && !_strnicmp(id, "com.squirrel.", 13) && strrchr(id, '.')[1])
+            snprintf(e, sizeof e, "%s.exe", strrchr(id, '.') + 1);
         if (!e[0] && u_ends_with_ci(id, ".exe")) u_copy(e, sizeof e, u_basename(id));
     }
     if (e[0]) MultiByteToWideChar(CP_UTF8, 0, e, -1, exe, MAX_PATH);
@@ -191,6 +196,22 @@ static void app_name(const char *id, char *name, size_t n)
         if (!c) c = strchr(k, '!');
         if (c) *c = 0;
         if (strlen(k) >= 4) MultiByteToWideChar(CP_UTF8, 0, k, -1, pkg, MAX_PATH);
+    }
+    // its words ("SoundCloud.SoundCloud_8w...!App": SoundCloud), for the .exe's name of a process
+    ntoks = 0;
+    if (!u_ends_with_ci(id, ".exe") && !strchr(id, '\\'))
+    {
+        static const char *const skip[] = { "com", "squirrel", "app", "microsoft", "windows", "desktop", "store", "player", "media" };
+        char k[256];
+        u_copy(k, sizeof k, id);
+        for (char *w = k, *z; w && ntoks < 6; w = z)
+        {
+            z = strpbrk(w, "._!");
+            if (z) *z++ = 0;
+            bool sk = strlen(w) < 4 || strlen(w) > 60;
+            for (size_t i = 0; i < sizeof skip / sizeof skip[0] && !sk; i++) sk = !_stricmp(w, skip[i]);
+            if (!sk) MultiByteToWideChar(CP_UTF8, 0, w, -1, toks[ntoks++], 64);
+        }
     }
 }
 
@@ -228,11 +249,72 @@ static bool has_ci(const WCHAR *t, const WCHAR *w)
 
 static bool our_pid(DWORD p) { for (int i = 0; i < npids; i++) if (pids[i] == p) return true; return false; }
 
+// the processes now (for the mixer's sessions of a program without an .exe name), made when asked
+static struct { DWORD pid, parent; WCHAR exe[64]; } procs[1024];
+static int nprocs = -1;
+
+static int proc_at(DWORD pid)
+{
+    if (nprocs < 0)
+    {
+        nprocs = 0;
+        HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (s == INVALID_HANDLE_VALUE) return -1;
+        PROCESSENTRY32W pe = { sizeof pe };
+        for (BOOL ok = Process32FirstW(s, &pe); ok && nprocs < 1024; ok = Process32NextW(s, &pe))
+        {
+            procs[nprocs].pid = pe.th32ProcessID;
+            procs[nprocs].parent = pe.th32ParentProcessID;
+            lstrcpynW(procs[nprocs].exe, pe.szExeFile, 64);
+            nprocs++;
+        }
+        CloseHandle(s);
+    }
+    for (int i = 0; i < nprocs; i++) if (procs[i].pid == pid) return i;
+    return -1;
+}
+
+// is the process (or the one that started it, as a WebView's) the program's: its .exe is one of the
+// id's words ("TIDAL.exe"), or it is of the program's package (a Store app)
+static bool app_process(DWORD pid)
+{
+    typedef LONG (WINAPI *gpfn_t)(HANDLE, UINT32 *, PWSTR);
+    static gpfn_t gpfn;
+    static bool gpfn_tried;
+    if (!gpfn_tried) { gpfn_tried = true; gpfn = (gpfn_t)(void *)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetPackageFamilyName"); }
+    for (int depth = 0; depth < 6 && pid; depth++)
+    {
+        int i = proc_at(pid);
+        if (i < 0) return false;
+        WCHAR b[64];
+        lstrcpynW(b, procs[i].exe, 64);
+        size_t l = wcslen(b);
+        if (l > 4 && !_wcsicmp(b + l - 4, L".exe")) b[l - 4] = 0;
+        for (int t = 0; t < ntoks; t++) if (!_wcsicmp(b, toks[t])) return true;
+        if (gpfn && pkg[0])
+        {
+            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            if (h)
+            {
+                WCHAR f[256];
+                UINT32 fl = 256;
+                bool ok = gpfn(h, &fl, f) == 0 && !_wcsnicmp(f, pkg, wcslen(pkg));
+                CloseHandle(h);
+                if (ok) return true;
+            }
+        }
+        if (procs[i].parent == pid) break;
+        pid = procs[i].parent;
+    }
+    return false;
+}
+
 // the mixer: the program's sessions on the default output; set (volume >= 0) or read
 static void mixer(int set_volume, int set_mute, int *volume, bool *muted)
 {
     *volume = -1;
-    if (!npids && !pkg[0]) return;
+    if (!npids && !pkg[0] && !ntoks) return;
+    nprocs = -1;
     if (!dev_enum && FAILED(CoCreateInstance(&CLSID_DevEnum, NULL, CLSCTX_ALL, &IID_DevEnum, &dev_enum))) { dev_enum = NULL; return; }
     void *dev = NULL, *mgr2 = NULL, *en = NULL;
     // IMMDeviceEnumerator::GetDefaultAudioEndpoint(eRender, eMultimedia)
@@ -251,19 +333,23 @@ static void mixer(int set_volume, int set_mute, int *volume, bool *muted)
                 void *ctl2 = qi(ctl, &IID_SessCtl2);
                 DWORD pid = 0;
                 if (ctl2) ((HRESULT (WINAPI *)(void *, DWORD *))VT(ctl2)[14])(ctl2, &pid);    // GetProcessId
-                if (pid && !our_pid(pid) && pkg[0] && ctl2)
+                if (pid && !our_pid(pid) && (pkg[0] || ntoks) && ctl2)
                 {
-                    // a Store program's session: its id has the package's path ("...\WindowsApps\Microsoft.ZuneMusic_...")
+                    // a Store program's session: its id has the package's path ("...\WindowsApps\Microsoft.ZuneMusic_..."),
+                    // or its process (or the one that started it) is the program's
                     WCHAR *sid = NULL;
-                    if (SUCCEEDED(((HRESULT (WINAPI *)(void *, WCHAR **))VT(ctl2)[12])(ctl2, &sid)) && sid)     // GetSessionIdentifier
+                    bool mine = false;
+                    if (pkg[0] && SUCCEEDED(((HRESULT (WINAPI *)(void *, WCHAR **))VT(ctl2)[12])(ctl2, &sid)) && sid)     // GetSessionIdentifier
                     {
-                        if (has_ci(sid, pkg))
-                        {
-                            sess_pid = pid;
-                            if (npids < 256) pids[npids++] = pid;
-                            if (!root_pid) root_pid = pid;
-                        }
+                        mine = has_ci(sid, pkg);
                         CoTaskMemFree(sid);
+                    }
+                    if (!mine) mine = app_process(pid);
+                    if (mine)
+                    {
+                        sess_pid = pid;
+                        if (npids < 256) pids[npids++] = pid;
+                        if (!root_pid) root_pid = pid;
                     }
                 }
                 if (pid && our_pid(pid))
@@ -380,6 +466,7 @@ static void poll(void)
         track_key[0] = 0;
         exe[0] = 0;
         pkg[0] = 0;
+        ntoks = 0;
         sess_pid = 0;
         npids = 0;
         return;
