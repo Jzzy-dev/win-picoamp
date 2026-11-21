@@ -44,7 +44,8 @@ and the window can be any size.
   * The keys and the control row go to it: Space / > / || play and pause, N / P (and the media keys) the
     next and previous track, , / . and the seek bar seek, H / R its shuffle and repeat, S pauses it.
   * The volume and mute set the program's own volume in Windows's mixer (Spotify, the Media Player,
-    Windows Media Player, Store apps, and programs whose `.exe` Windows names); PicoAmp's own volume is
+    Windows Media Player, Store apps, the browsers (Chrome, Edge, Firefox, Opera, Brave, Vivaldi: for
+    SoundCloud, YouTube and the like; the whole browser's volume), and programs whose `.exe` Windows names); PicoAmp's own volume is
     kept for its own music.
   * Only programs that tell Windows what they play can be followed. VLC 3 does not (VLC 4 will); the
     [vlc-win10smtc](https://github.com/spmn/vlc-win10smtc) plugin adds it: copy its DLL (the same 32 or

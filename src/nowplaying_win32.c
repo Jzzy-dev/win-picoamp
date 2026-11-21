@@ -143,7 +143,7 @@ static bool    art_first;           // the first read for this track: shown even
 static WCHAR   exe[MAX_PATH];       // the program's .exe ("Spotify.exe"), for the mixer and the loopback
 static WCHAR   pkg[MAX_PATH];       // a Store program's package ("Microsoft.ZuneMusic"): its sessions in the mixer name it
 static DWORD   sess_pid;            // the process the mixer showed for it
-static DWORD   pids[64];
+static DWORD   pids[256];        // (a browser has many)
 static int     npids;
 static DWORD   root_pid;
 static DWORD   pids_at, vol_at;
@@ -167,8 +167,19 @@ static void app_name(const char *id, char *name, size_t n)
     if (strstr(id, "potify") || strstr(id, "POTIFY")) u_copy(e, sizeof e, "Spotify.exe");
     else if (strstr(id, "ZuneMusic")) u_copy(e, sizeof e, "Microsoft.Media.Player.exe");   // (the new Media Player)
     else if (strstr(id, "MediaPlayer32")) u_copy(e, sizeof e, "wmplayer.exe");           // (Windows Media Player Legacy)
-    else if (u_ends_with_ci(id, ".exe")) u_copy(e, sizeof e, u_basename(id));
-    else e[0] = 0;
+    else
+    {
+        // the browsers (SoundCloud, YouTube, ... in a tab, or as an installed web app: "Chrome._crx_...")
+        static const struct { const char *id, *exe, *name; } br[] = {
+            { "Chrome", "chrome.exe", "Chrome" }, { "MSEdge", "msedge.exe", "Edge" },
+            { "308046B0AF4A39CB", "firefox.exe", "Firefox" }, { "Firefox", "firefox.exe", "Firefox" },
+            { "Opera", "opera.exe", "Opera" }, { "Brave", "brave.exe", "Brave" }, { "Vivaldi", "vivaldi.exe", "Vivaldi" },
+        };
+        e[0] = 0;
+        for (size_t i = 0; i < sizeof br / sizeof br[0] && !e[0]; i++)
+            if (!_strnicmp(id, br[i].id, strlen(br[i].id))) { u_copy(e, sizeof e, br[i].exe); u_copy(name, n, br[i].name); }
+        if (!e[0] && u_ends_with_ci(id, ".exe")) u_copy(e, sizeof e, u_basename(id));
+    }
     if (e[0]) MultiByteToWideChar(CP_UTF8, 0, e, -1, exe, MAX_PATH);
     // a Store program ("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic"): its package, as its sessions' ids have it
     pkg[0] = 0;
@@ -192,8 +203,8 @@ static void find_pids(void)
     HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (s == INVALID_HANDLE_VALUE) return;
     PROCESSENTRY32W pe = { sizeof pe };
-    DWORD parent[64];
-    for (BOOL ok = Process32FirstW(s, &pe); ok && npids < 64; ok = Process32NextW(s, &pe))
+    DWORD parent[256];
+    for (BOOL ok = Process32FirstW(s, &pe); ok && npids < 256; ok = Process32NextW(s, &pe))
         if (!_wcsicmp(pe.szExeFile, exe)) { parent[npids] = pe.th32ParentProcessID; pids[npids++] = pe.th32ProcessID; }
     CloseHandle(s);
     for (int i = 0; i < npids && !root_pid; i++)
@@ -249,7 +260,7 @@ static void mixer(int set_volume, int set_mute, int *volume, bool *muted)
                         if (has_ci(sid, pkg))
                         {
                             sess_pid = pid;
-                            if (npids < 64) pids[npids++] = pid;
+                            if (npids < 256) pids[npids++] = pid;
                             if (!root_pid) root_pid = pid;
                         }
                         CoTaskMemFree(sid);
