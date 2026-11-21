@@ -53,27 +53,26 @@ and the window can be any size.
   * Playing a file or a station in PicoAmp ends it, and pauses the program if it plays: the new
     music takes over. `PicoAmp.exe --follow` starts with it.
   * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.
-* **The MSX link (K):** PicoAmp on the MSX ([msx-picoplay-picoamp](https://github.com/Jzzy-dev/msx-picoplay-picoamp),
-  engine 0.18) plays what this PC plays: Spotify (or another player it follows), or PicoAmp's own files and
-  stations. K turns it on and shows the address to put in the MSX's favourites (`RADIOFAV.M3U` on its card),
-  e.g. `http://192.168.1.20:8765/stream.mp3`; Windows asks once whether PicoAmp may take connections (allow
-  private networks).
-  * Two ways, two addresses (both in `/picoamp.m3u`):
-    * `/stream.mp3`: the MSX plays the sound (the MSX as a speaker, a few seconds behind).
-    * `/screen`: the MSX as this PC's **screen and remote**: no sound there; the song, its time and state, the
-      cover and the bars as this PC shows them (25 times a second, in step with what you hear here), and
-      the keys back. The lyrics go along too (the same as the L page here finds): **L** on the MSX shows them,
-      the line sung now lit, as here.
-  * As a speaker, the MSX hears it as an internet radio station: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of
-    what is heard here, with the song in its titles; silence while nothing plays, so the station stays.
-  * The MSX's keys come back here (`/cmd`): SPACE, N, P (pause, next, previous), `,` `.` (seeking), H and R
-    (shuffle, repeat), also for Spotify.
+* **The MSX link (K):** PicoAmp on the MSX ([msx-picoplay-picoamp](https://github.com/Jzzy-dev/msx-picoplay-picoamp)
+  v1.6, engine 0.18) shows, controls or plays what this PC plays: Spotify, the Media Player (or another
+  player it follows), or PicoAmp's own files and stations. K turns it on and shows the address to put in
+  the MSX's favourites (`RADIOFAV.M3U` on its card), e.g. `http://192.168.1.20:8765/screen`; Windows asks
+  once whether PicoAmp may take connections (allow private networks). Two ways, two addresses (both in
+  `/picoamp.m3u`):
+  * `/screen`: the MSX as this PC's **screen and remote**. The sound stays here; the MSX shows the song,
+    its time and seek bar, playing or paused, the cover (once it is made here), this PC's format line
+    (`SPOTIFY 48.0KHZ`) and the bars as this PC shows them (25 times a second, in step with what you hear
+    here). The lyrics go along too: **L** on the MSX shows them, the line sung now lit, as here.
+  * `/stream.mp3`: the MSX as a **speaker**: an MP3 stream (160 kbit/s, Windows's own MP3 encoder) of what
+    is heard here, an internet radio station to the MSX with the song in its titles; silence while nothing
+    plays, so the station stays. The MSX plays a few seconds behind (its buffer): turn this PC's speakers
+    down.
+  * In both, the MSX's keys come back here (`/cmd`): SPACE, N, P (pause, next, previous), `,` `.` (seeking),
+    H and R (shuffle, repeat), the volume keys and M (PicoAmp's volume, or the followed player's), also for
+    Spotify.
   * The cover goes to the MSX as it wants it: 80 × 80, baseline JPEG (`/cover.jpg`); for its full screen
     cover (Z) as big as fits 281 × 192 (`/cover.jpg?w=281&h=192`).
-  * `/now` says what plays (JSON); `/picoamp.m3u` is a station list with the stream.
-  * The MSX's volume keys and M are this PC's (PicoAmp's, or Spotify's when it follows Spotify), in both
-    ways: the sound the MSX gets is this PC's, at its volume. As a speaker, the MSX plays a few seconds behind
-    (its buffer): turn this PC's speakers down.
+  * `/now` says what plays (JSON).
   * `[msx]` in `picoamp.ini`: `msx_link`, `msx_port` (8765), `msx_kbps` (96, 112, 128, 160, 192).
 * **Lyrics (L):** the words of what plays, from [LRCLIB](https://lrclib.net), a free, open lyrics
   database (no account, no key). Many songs have synced lyrics: the line sung now shows in yellow,
