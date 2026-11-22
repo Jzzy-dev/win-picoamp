@@ -19,6 +19,23 @@ and the window can be any size.
 
 *(The screenshots come from the test build, with its test music, stations, places and feeds.)*
 
+## Spotify, other players and Sonos
+
+PicoAmp can be the screen and remote of music it does not play itself, and pass that on:
+
+* **Spotify & other players** (top of the list): what Spotify, the Media Player, VLC (with its
+  SMTC plugin), the TIDAL and SoundCloud apps or a browser play, through Windows's own media
+  controls. The bars move on that program's sound.
+* **Sonos** (top of the list, once speakers answer): a room of the house, through the speakers' own
+  control in the network. The sound stays on the speakers.
+* Either one shows as PicoAmp's own track: title, artist, album, cover, lyrics (L), and the keys,
+  seek bar, shuffle, repeat and volume go to it. Playing a file or a station here takes over.
+* **The MSX link (K)** sends it on to PicoAmp on the MSX (its screen and remote, or the sound), and
+  it is the bridge that lets [PicoAmp for the web](https://github.com/Jzzy-dev/web-picoamp) reach
+  the Sonos rooms. (PicoAmp on the MSX also finds Sonos rooms by itself.)
+
+Details below, under What it does.
+
 ## What it does
 
 * **Music files:** MP3, WAV and FLAC from any folder of the PC, with the title and artist from their
