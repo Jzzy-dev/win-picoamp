@@ -4,6 +4,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include "eq.h"
 
 enum { ST_STOPPED = 0, ST_PLAYING = 1, ST_PAUSED = 2 };
@@ -48,6 +49,8 @@ void audio_play_stations(const char *const *urls, const char *const *names, int 
 // track is the player's, the keys go to it, the bars move on the PC's sound.
 // Playing a file or a station here ends it.
 void audio_follow_system(void);
+void audio_follow_sonos(const char *id);          // a Sonos room (sonos.h): as a program of the PC, its sound stays there
+bool audio_follow_art(uint8_t **data, size_t *len);   // the picture of what the followed player plays
 bool audio_system_supported(void);
 void audio_toggle_pause(void);
 void audio_stop(void);

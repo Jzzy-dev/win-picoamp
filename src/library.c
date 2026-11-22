@@ -8,6 +8,7 @@
 #include "util.h"
 #include "radiodir.h"
 #include "nowplaying.h"
+#include "sonos.h"
 
 #define FAV_FILE "Favourites.m3u"
 
@@ -39,6 +40,9 @@ bool lib_is_music(const char *name)
     return u_ends_with_ci(name, ".mp3") || u_ends_with_ci(name, ".wav") || u_ends_with_ci(name, ".flac");
 }
 
+static bool     sonos_pending;      // the Sonos rooms are searched
+static char     rb_err[160];        // why a list did not come
+
 static bool is_list_file(const char *name)
 {
     return u_ends_with_ci(name, ".m3u") || u_ends_with_ci(name, ".m3u8") || u_ends_with_ci(name, ".pls");
@@ -46,6 +50,7 @@ static bool is_list_file(const char *name)
 
 void lib_init(void)
 {
+    if (sonos_supported()) sonos_discover(false);      // (the top list shows Sonos once there are rooms)
     const char *rd = config_radio_dir();
     sys_mkdir(rd);
     char p[2200];
@@ -141,12 +146,25 @@ int lib_open(lib_list *l, const char *place)
     l->ok = true;
     if (place[0]) add(l, E_PARENT, "..", "");          // as on the MSX: [..] first
     if (!strncmp(place, "rb:", 3)) return rb_open(l, place);
+    if (!strcmp(place, "sonos:"))
+    {
+        // the rooms: searched again (groups change), the list when they answer
+        sonos_discover(true);
+        sonos_pending = true;
+        rb_err[0] = 0;
+        return LIB_PENDING;
+    }
     if (!place[0])
     {
         u_copy(l->title, sizeof l->title, "/");
         add(l, E_FOLDER, "Internet radio", "radio:");
         if (cfg.music_dir[0] && sys_is_dir(cfg.music_dir)) add(l, E_FOLDER, "Music", cfg.music_dir);
         if (np_supported()) add(l, E_SYSTEM, "Spotify & other players", "system:");
+        if (sonos_supported())
+        {
+            sonos_room r;
+            if (sonos_rooms(&r, 1) > 0 || cfg.sonos_ip[0]) add(l, E_FOLDER, "Sonos", "sonos:");
+        }
         char d[26];
         int n = sys_drives(d);
         for (int i = 0; i < n; i++)
@@ -238,6 +256,7 @@ void lib_parent(const char *place, char *out, size_t size)
         return;
     }
     if (!strncmp(place, "radio:", 6)) { u_copy(out, size, place[6] ? "radio:" : ""); return; }
+    if (!strncmp(place, "sonos:", 6)) { out[0] = 0; return; }
     char buf[2048];
     u_copy(buf, sizeof buf, place);
     size_t l = strlen(buf);
@@ -395,7 +414,6 @@ static int      rb_offset;           // its next page
 static bool     rb_pending;
 static rd_item *countries;           // kept: the countries come once
 static int      n_countries;
-static char     rb_err[160];
 
 const char *lib_error(void) { return rb_err; }
 
@@ -527,8 +545,31 @@ static int cmp_country(const void *a, const void *b)
     return u_stricmp(x, y);
 }
 
+static int sonos_poll(lib_list *l)
+{
+    int s = sonos_state();
+    if (s == SONOS_LOADING || s == SONOS_IDLE) return LIB_PENDING;
+    sonos_pending = false;
+    sonos_room r[32];
+    int n = sonos_rooms(r, 32);
+    if (!n) { u_copy(rb_err, sizeof rb_err, sonos_error()[0] ? sonos_error() : "No Sonos speakers found"); return LIB_FAIL; }
+    lib_free(l);
+    u_copy(l->place, sizeof l->place, "sonos:");
+    u_copy(l->title, sizeof l->title, "/Sonos");
+    l->ok = true;
+    add(l, E_PARENT, "..", "");
+    for (int i = 0; i < n; i++)
+    {
+        char t[80];
+        snprintf(t, sizeof t, "sonos:%s", r[i].id);
+        add(l, E_SONOS, r[i].name, t);
+    }
+    return LIB_OK;
+}
+
 int lib_poll(lib_list *l)
 {
+    if (sonos_pending) return sonos_poll(l);
     if (!rb_pending) return LIB_FAIL;
     int s = rd_state();
     if (s == RD_LOADING) return LIB_PENDING;
@@ -550,6 +591,7 @@ int lib_poll(lib_list *l)
 
 void lib_cancel(void)
 {
+    sonos_pending = false;
     if (rb_pending) rd_cancel();
     rb_pending = false;
 }

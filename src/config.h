@@ -58,6 +58,9 @@ typedef struct
     bool   msx_link;         // the MSX link: PicoAmp on the MSX plays what this PC plays (msxlink.c)
     int    msx_port;
     int    msx_kbps;         // the stream's MP3 bitrate
+    // [sonos]
+    char   sonos_ip[256];    // speakers to ask besides the ones that answer the search (addresses, a comma between them)
+    bool   sonos_bars;       // bars that move while a Sonos room plays (its sound does not come here)
 } config;
 
 extern config cfg;

@@ -19,6 +19,23 @@ and the window can be any size.
 
 *(The screenshots come from the test build, with its test music, stations, places and feeds.)*
 
+## Spotify, other players and Sonos
+
+PicoAmp can be the screen and remote of music it does not play itself, and pass that on:
+
+* **Spotify & other players** (top of the list): what Spotify, the Media Player, VLC (with its
+  SMTC plugin), the TIDAL and SoundCloud apps or a browser play, through Windows's own media
+  controls. The bars move on that program's sound.
+* **Sonos** (top of the list, once speakers answer): a room of the house, through the speakers' own
+  control in the network. The sound stays on the speakers.
+* Either one shows as PicoAmp's own track: title, artist, album, cover, lyrics (L), and the keys,
+  seek bar, shuffle, repeat and volume go to it. Playing a file or a station here takes over.
+* **The MSX link (K)** sends it on to PicoAmp on the MSX (its screen and remote, or the sound), and
+  it is the bridge that lets [PicoAmp for the web](https://github.com/Jzzy-dev/web-picoamp) reach
+  the Sonos rooms. (PicoAmp on the MSX also finds Sonos rooms by itself.)
+
+Details below, under What it does.
+
 ## What it does
 
 * **Music files:** MP3, WAV and FLAC from any folder of the PC, with the title and artist from their
@@ -55,6 +72,22 @@ and the window can be any size.
   * Playing a file or a station in PicoAmp ends it, and pauses the program if it plays: the new
     music takes over. `PicoAmp.exe --follow` starts with it.
   * Spotify's own app is needed (the desktop or the Store app); its Web API is not used.
+* **Sonos:** **Sonos** at the top of the list (it shows once speakers in this network answer) has the
+  rooms of the house: Enter on one makes PicoAmp its screen and remote, as for Spotify above. The sound
+  stays on the speakers. No account and no key: the speakers' own control in the network (UPnP, port
+  1400), as the Sonos apps use it.
+  * A room is a group of speakers, named after the one that leads it ("Kitchen + 1"); a pair, a sub or
+    surrounds are one room. A room that joins another group is followed to that group.
+  * Its song, artist, album, time and cover show as PicoAmp's own track (the cover view, the full-screen
+    cover, the lyrics (L), the window's title, the MSX link). A station on the Sonos shows the song it
+    plays, with the station's name.
+  * The keys go to the room: Space play / pause (a station that cannot pause stops), N / P, `,` / `.` and
+    the seek bar, H / R its shuffle and repeat, the volume and mute (the group's, for a group).
+  * The bars move on a pretend sound while the room plays, as its sound does not come to this PC
+    (`sonos_bars = off` in `[sonos]` of `picoamp.ini`: no bars).
+  * Speakers are found with an SSDP search in the network. When a network keeps that from them (some
+    mesh WiFi and guest networks), put their addresses in `sonos_ip = ` (a comma between them).
+  * Windows asks once whether PicoAmp may use the network: allow private networks.
 * **The MSX link (K):** PicoAmp on the MSX ([msx-picoplay-picoamp](https://github.com/Jzzy-dev/msx-picoplay-picoamp)
   v1.6, engine 0.18) shows, controls or plays what this PC plays: Spotify, the Media Player (or another
   player it follows), or PicoAmp's own files and stations. K turns it on and shows the address to put in
@@ -76,6 +109,10 @@ and the window can be any size.
     cover (Z) as big as fits 281 × 192 (`/cover.jpg?w=281&h=192`).
   * `/now` says what plays (JSON).
   * `[msx]` in `picoamp.ini`: `msx_link`, `msx_port` (8765), `msx_kbps` (96, 112, 128, 160, 192).
+  * **For PicoAmp for the web:** a web page cannot reach Sonos speakers itself, so while K is on, this PC
+    answers it for them: `/sonos/rooms`, `/sonos/now?id=`, `/sonos/cmd?id=&c=`, `/sonos/vol?id=&v=&m=`,
+    `/sonos/art?id=`. On a phone or a tablet in the same network, open `http://<this PC>:8765/web/`: PicoAmp
+    for the web, fetched from its site by this PC, with Sonos through it.
 * **Lyrics (L):** the words of what plays, from [LRCLIB](https://lrclib.net), a free, open lyrics
   database (no account, no key). Many songs have synced lyrics: the line sung now shows in yellow,
   the ones sung in grey, the ones to come below. Songs with plain lyrics only scroll through the song,
@@ -252,7 +289,7 @@ The result is a single `build/PicoAmp.exe` (about 1.4 MB) that needs nothing els
 * GitHub Actions builds it on every push and runs it on Windows. The checks cover the drawing, an HTTPS
   station, the real station directory, clock, weather and news, and AAC and HE-AAC stations.
 * The zip is attached to each run, and to a release for a `v*` tag.
-* `make test` runs 44 checks against a local radio server and stand-ins for the web services.
+* `make test` runs its checks against a local radio server and stand-ins for the web services.
 * `PicoAmp.exe --script "key C; wait 5000; page; quit" --log out.txt` drives the real program the same
   way.
 
@@ -269,6 +306,7 @@ The result is a single `build/PicoAmp.exe` (about 1.4 MB) that needs nothing els
 | `src/library.c`, `config.c` | The list (folders, station lists, the directory, favourites) and the settings |
 | `src/cover.c`, `pva_cover.c`, `third_party/tjpgd` | The cover view: the picture found and decoded; `pva_cover.c` is the MSX engine's own conversion to SCREEN 4 cells |
 | `src/logo.c` | A station's logo: Radio Browser's `favicon`, fetched in a thread and kept in `Logos` |
+| `src/sonos.c` | Sonos: the search (SSDP), the rooms, a room's song and keys (UPnP/SOAP); `tests/sonos_fake.py` pretends three speakers |
 | `src/main_win32.c` | The window, scaling, keys, mouse, media keys, drag and drop |
 | `src/main_host.c`, `script.c`, `tests/` | The test build, the script runner, the stand-in servers, the checks |
 | `tools/` | Generators of the font and digits header and of the icon |

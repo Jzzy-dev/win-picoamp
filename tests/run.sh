@@ -27,7 +27,7 @@ SRV=$!
 ffmpeg -loglevel error -y -f lavfi -i "testsrc=size=160x160:rate=1" -frames:v 1 -pix_fmt yuvj420p $T/logo.jpg
 python3 tests/web_server.py $WEB http://localhost:$PORT/mid $T/logo.jpg > $T/web.log 2>&1 &
 SRV2=$!
-trap 'kill $SRV $SRV2 2>/dev/null' EXIT
+trap 'kill $SRV $SRV2 $SON $WEBAPP 2>/dev/null || true' EXIT
 export PICOAMP_RB=http://localhost:$WEB PICOAMP_IPAPI=http://localhost:$WEB/ipapi PICOAMP_ITUNES=http://localhost:$WEB/itunes
 export PICOAMP_METEO=http://localhost:$WEB/meteo PICOAMP_GEO=http://localhost:$WEB/geo
 export PICOAMP_YAHOO=http://localhost:$WEB PICOAMP_YFEEDS=http://localhost:$WEB
@@ -311,5 +311,65 @@ check "msx screen: its cover made, then fetched" "$scr" "screen cover made: [0-9
 check "msx screen: the format line" "$scr" "screen format: [0-9]*K 44.1KHZ ST"
 check "msx screen: seeking to a time from the MSX" "$scr" "screen time: 1[01][0-9][0-9][0-9] 30"
 check "msx screen: pause from the MSX" "$out" "state=2 .*title='Sine Café Song'"
+
+# Sonos (tests/sonos_fake.py: three pretend speakers): the search, the rooms (a group with its
+# coordinator's name, a bonded and a bridge left out), a room followed as a player: its song, time and
+# cover, the keys to it (pause, next, volume, mute, seek, shuffle and repeat), a station's song
+ffmpeg -loglevel error -y -f lavfi -i "testsrc=size=300x300:rate=1" -frames:v 1 -pix_fmt yuvj420p $T/sonos.jpg
+python3 tests/sonos_fake.py 18900 18910 $T/sonos.jpg > $T/sonos.log 2>&1 &
+SON=$!
+sleep 0.7
+export PICOAMP_SSDP=127.0.0.1:18900
+sed -i "s|^folder = .*|folder = |; s|^view = .*|view = spectrum|" $T/cfg/picoamp.ini
+out=$(run "wait 1800; list; key Home; key Down; key Down; key Enter; wait 2500; list")
+check "sonos: the top list's entry" "$out" "^   1 Sonos"
+check "sonos: the rooms" "$(printf '%s\n' "$out" | tail -3)" "9 Kitchen + 1"
+check "sonos: one speaker" "$(printf '%s\n' "$out" | tail -1)" "9 Living Room"
+out=$(run "wait 1500; key Home; key Down; key Down; key Enter; wait 2500; key End; key Enter; wait 2500; status; key V; key V; wait 400; page; key Space; wait 1300; status; key N; wait 1300; status; key -; key M; wait 1300; status; key .; key H; key R; wait 1300; status; key L; wait 1200; page; key Esc; key Home; key Down; key Enter; wait 2200; status; key N; key Space; wait 1300; status; key +; wait 1300; status")
+check "sonos: a room's song, time and volume" "$out" "state=1 elapsed=[0-9]*/210 .*vol=30 title='Fake Song' artist='Fake Artist' album='Fake Album' .*system=1 source='Sonos Living Room'"
+check "sonos: its cover" "$out" "^page 0 cover=ready"
+check "sonos: Space pauses it" "$out" "state=2 .*title='Fake Song' "
+check "sonos: N its next song" "$out" "state=2 .*title='Fake Song 2'"
+check "sonos: volume and mute" "$out" "vol=25 .*title='Fake Song 2' .*muted=1"
+check "sonos: shuffle and repeat" "$out" "source='Sonos Living Room' mode=3"
+check "sonos: the lyrics" "$out" "^lyrics state="
+check "sonos: a station's song (a group)" "$out" "state=1 elapsed=60/0 .*vol=40 title='Radio Song & Co' artist='Radio Artist' album='Radio Fake' .*source='Sonos Kitchen + 1'"
+check "sonos: a station that cannot pause stops" "$out" "state=0 .*title='Radio Song & Co'"
+check "sonos: the group's volume" "$out" "vol=45 .*source='Sonos Kitchen + 1'"
+slog=$(curl -s http://127.0.0.1:18910/log)
+check "sonos: told: pause, play" "$slog" "^Living Room Pause"
+check "sonos: told: the next song" "$slog" "^Living Room Next"
+check "sonos: told: the speaker's volume" "$slog" "^Living Room SetVolume <Channel>Master</Channel><DesiredVolume>25</DesiredVolume>"
+check "sonos: told: mute" "$slog" "^Living Room SetMute <Channel>Master</Channel><DesiredMute>1</DesiredMute>"
+check "sonos: told: seek" "$slog" "^Living Room Seek <Unit>REL_TIME</Unit><Target>0:00:1[0-9]</Target>"
+check "sonos: told: shuffle and repeat" "$slog" "^Living Room SetPlayMode <NewPlayMode>SHUFFLE</NewPlayMode>"
+check "sonos: a station: no next" "$(printf '%s\n' "$slog" | grep -c '^Kitchen Next')" "^0$"
+check "sonos: told: the group's volume" "$slog" "^Kitchen SetGroupVolume <DesiredVolume>45</DesiredVolume>"
+check "sonos: lyrics asked" "$(cat $T/web.log)" "lrclib get Fake Artist Fake Song"
+# the Sonos bridge for PicoAmp for the web (on the MSX link's port), and the web app from this PC
+mkdir -p $T/webapp && echo '<html>PicoAmp web</html>' > $T/webapp/index.html && printf '\0asm' > $T/webapp/picoamp.wasm
+(cd $T/webapp && exec python3 -m http.server 18960 --bind 127.0.0.1) > /dev/null 2>&1 &
+WEBAPP=$!
+sleep 0.5
+LP=18778
+sed -i "s|^msx_port = .*|msx_port = $LP|" $T/cfg/picoamp.ini
+PICOAMP_WEBAPP=http://127.0.0.1:18960/ PICOAMP_CONFIG=$T/cfg timeout 30 $BIN "msxlink on; wait 9000; msxlink off" > /dev/null 2>&1 &
+APP=$!
+sleep 2.5
+br=$(curl -s "http://127.0.0.1:$LP/sonos/rooms"; echo; curl -s "http://127.0.0.1:$LP/sonos/now?id=RINCON_A"; curl -s "http://127.0.0.1:$LP/sonos/cmd?id=RINCON_A&c=pause";
+     curl -s "http://127.0.0.1:$LP/sonos/vol?id=RINCON_B&v=12&m=1"; curl -s "http://127.0.0.1:$LP/sonos/now?id=RINCON_B"; echo "art $(curl -s "http://127.0.0.1:$LP/sonos/art?id=RINCON_A" | wc -c)";
+     curl -si -X OPTIONS "http://127.0.0.1:$LP/sonos/rooms" | tr -d '\r'; curl -s "http://127.0.0.1:$LP/web/"; curl -si "http://127.0.0.1:$LP/web/picoamp.wasm" | tr -d '\r' | grep -a -i '^content-type' || true)
+wait $APP || true
+kill $WEBAPP 2>/dev/null || true
+check "sonos bridge: the rooms" "$br" '"rooms":\[{"id":"RINCON_B","name":"Kitchen + 1","members":2},{"id":"RINCON_A","name":"Living Room","members":1}\]'
+check "sonos bridge: a room now" "$br" '"app":"Sonos Living Room","title":"Fake Song 2","artist":"Fake Artist"'
+check "sonos bridge: a key" "$(curl -s http://127.0.0.1:18910/log | tail -3)" "^Living Room Pause"
+check "sonos bridge: the group's volume and mute" "$br" '"title":"Radio Song & Co".*"volume":12,"muted":true'
+check "sonos bridge: the cover" "$br" "^art [1-9][0-9]*"
+check "sonos bridge: a page of another site may ask" "$br" "^Access-Control-Allow-Private-Network: true"
+check "the web app from this PC" "$br" "^<html>PicoAmp web</html>"
+check "the web app: wasm as wasm" "$br" "^Content-Type: application/wasm"
+kill $SON 2>/dev/null || true
+unset PICOAMP_SSDP
 
 [ $fail = 0 ] && echo "all checks passed" || { echo "some checks FAILED"; exit 1; }

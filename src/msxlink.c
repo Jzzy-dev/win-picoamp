@@ -48,6 +48,8 @@ typedef int sock_t;
 #include "util.h"
 #include "tjpgd.h"
 #include "lyrics.h"
+#include "sonos.h"
+#include "net.h"
 
 #define RATE        44100
 #define PCM_FRAMES  (2 * 96000)          // the PCM ring: 2 s at 96 kHz
@@ -639,6 +641,177 @@ static void query(const char *path, const char *key, char *out, size_t n)
     }
 }
 
+// ---------------------------------------------------------------- the Sonos bridge
+// PicoAmp for the web (a page cannot reach the speakers itself) asks here:
+//   /sonos/rooms[?fresh=1]          {"state":"done","error":"","rooms":[{"id","name","members"}]}
+//   /sonos/now?id=RINCON_..         what the room plays (as nowplaying.h's np_info)
+//   /sonos/cmd?id=..&c=toggle|play|pause|next|prev|seek&ms=..|shuffle&on=0/1|repeat&on=0/1/2
+//   /sonos/vol?id=..&v=0..100&m=0/1 the room's volume and mute (either)
+//   /sonos/art?id=..                its cover (the picture's bytes)
+static void sonos_bridge(sock_t s, const char *what, const char *path)
+{
+    char id[64], v[32], m[16];
+    query(path, "id", id, sizeof id);
+    if (!strcmp(what, "rooms"))
+    {
+        query(path, "fresh", v, sizeof v);
+        sonos_discover(atoi(v) != 0);
+        for (int i = 0; i < 40 && sonos_state() == SONOS_LOADING; i++) sys_sleep_ms(50);
+        sonos_room r[32];
+        int n = sonos_rooms(r, 32), st = sonos_state();
+        size_t cap = 256 + (size_t)n * 400, k = 0;
+        char *b = malloc(cap), e[300];
+        json_str(e, sizeof e, sonos_error());
+        k += (size_t)snprintf(b + k, cap - k, "{\"state\":\"%s\",\"error\":%s,\"rooms\":[",
+                              st == SONOS_LOADING ? "loading" : st == SONOS_FAILED ? "failed" : st == SONOS_DONE ? "done" : "idle", e);
+        for (int i = 0; i < n; i++)
+        {
+            char ji[128], jn[300];
+            json_str(ji, sizeof ji, r[i].id);
+            json_str(jn, sizeof jn, r[i].name);
+            k += (size_t)snprintf(b + k, cap - k, "%s{\"id\":%s,\"name\":%s,\"members\":%d}", i ? "," : "", ji, jn, r[i].members);
+        }
+        k += (size_t)snprintf(b + k, cap - k, "]}\n");
+        send_text(s, "200 OK", "application/json", b, k, NULL);
+        free(b);
+        return;
+    }
+    if (!id[0]) { send_text(s, "400 Bad Request", "text/plain", "id?\n", 4, NULL); return; }
+    if (!strcmp(what, "now"))
+    {
+        np_info i;
+        if (!sonos_query(id, &i)) { send_text(s, "404 Not Found", "application/json", "{\"error\":\"no answer\"}\n", 22, NULL); return; }
+        char t[600], a[600], al[600], ap[200], b[3000];
+        json_str(t, sizeof t, i.title);
+        json_str(a, sizeof a, i.artist);
+        json_str(al, sizeof al, i.album);
+        json_str(ap, sizeof ap, i.app);
+        int n = snprintf(b, sizeof b,
+                         "{\"state\":\"%s\",\"app\":%s,\"title\":%s,\"artist\":%s,\"album\":%s,\"elapsed_ms\":%d,\"total_ms\":%d,"
+                         "\"can_seek\":%s,\"can_next\":%s,\"can_prev\":%s,\"can_shuffle\":%s,\"can_repeat\":%s,"
+                         "\"shuffle\":%s,\"repeat\":%d,\"volume\":%d,\"muted\":%s,\"art\":%u}\n",
+                         i.state == NP_PLAYING ? "playing" : i.state == NP_PAUSED ? "paused" : "stopped", ap, t, a, al,
+                         i.elapsed_ms, i.total_ms, i.can_seek ? "true" : "false", i.can_next ? "true" : "false",
+                         i.can_prev ? "true" : "false", i.can_shuffle ? "true" : "false", i.can_repeat ? "true" : "false",
+                         i.shuffle ? "true" : "false", i.repeat, i.volume, i.muted ? "true" : "false", i.art_gen);
+        send_text(s, "200 OK", "application/json", b, (size_t)n, NULL);
+        return;
+    }
+    if (!strcmp(what, "cmd"))
+    {
+        char c[16];
+        query(path, "c", c, sizeof c);
+        int cmd = !strcmp(c, "toggle") ? NP_TOGGLE : !strcmp(c, "play") ? NP_PLAY : !strcmp(c, "pause") ? NP_PAUSE
+                : !strcmp(c, "next") ? NP_NEXT : !strcmp(c, "prev") ? NP_PREV : !strcmp(c, "seek") ? NP_SEEK_TO
+                : !strcmp(c, "shuffle") ? NP_SHUFFLE : !strcmp(c, "repeat") ? NP_REPEAT : 0;
+        query(path, cmd == NP_SEEK_TO ? "ms" : "on", v, sizeof v);
+        bool ok = cmd && sonos_command(id, cmd, atoi(v));
+        if (ok) send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
+        else send_text(s, "502 Bad Gateway", "text/plain", "the speaker said no\n", 20, NULL);
+        return;
+    }
+    if (!strcmp(what, "vol"))
+    {
+        query(path, "v", v, sizeof v);
+        query(path, "m", m, sizeof m);
+        bool ok = (v[0] || m[0]) && sonos_set_volume(id, v[0] ? atoi(v) : -1, m[0] ? atoi(m) != 0 : -1);
+        if (ok) send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
+        else send_text(s, "502 Bad Gateway", "text/plain", "the speaker said no\n", 20, NULL);
+        return;
+    }
+    if (!strcmp(what, "art"))
+    {
+        uint8_t *d;
+        size_t n;
+        if (sonos_room_art(id, &d, &n))
+        {
+            bool png = n > 4 && d[0] == 0x89 && d[1] == 'P';
+            send_text(s, "200 OK", png ? "image/png" : "image/jpeg", (const char *)d, n, NULL);
+            free(d);
+        }
+        else send_text(s, "404 Not Found", "text/plain", "no cover\n", 9, NULL);
+        return;
+    }
+    send_text(s, "404 Not Found", "text/plain", "rooms now cmd vol art\n", 22, NULL);
+}
+
+// ---------------------------------------------------------------- PicoAmp for the web, from this PC
+// /web/... is PicoAmp for the web, fetched from its site (and kept for an hour), so a phone or a
+// tablet in this network opens it on http://<this PC>:<port>/web/: then it may ask /sonos/ here (a
+// page on https may not ask an http address of the network). PICOAMP_WEBAPP: another site (tests).
+#define WEB_SITE  "https://jzzy-dev.github.io/web-picoamp/"
+#define WEB_FILES 16
+static struct { char name[96]; char type[64]; uint8_t *data; size_t len; uint32_t at; } web[WEB_FILES];
+
+static void web_app(sock_t s, const char *path)
+{
+    if (!strcmp(path, "/web")) { send_text(s, "301 Moved", "text/plain", "", 0, "Location: /web/\r\n"); return; }
+    char name[96];
+    u_copy(name, sizeof name, path + 5);
+    char *q = strchr(name, '?');
+    if (q) *q = 0;
+    if (!name[0]) u_copy(name, sizeof name, "index.html");
+    for (const char *c = name; *c; c++)
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '.' || *c == '-' || *c == '_') || (c[0] == '.' && c[1] == '.'))
+            { send_text(s, "404 Not Found", "text/plain", "not here\n", 9, NULL); return; }
+    sys_lock(lock);
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < WEB_FILES; i++)
+    {
+        if (!strcmp(web[i].name, name) && web[i].data && sys_millis() - web[i].at < 3600000u) slot = i;
+        if (web[i].at < web[oldest].at || !web[i].data) oldest = i;
+    }
+    if (slot >= 0)
+    {
+        uint8_t *d = malloc(web[slot].len);
+        size_t n = web[slot].len;
+        char type[64];
+        memcpy(d, web[slot].data, n);
+        u_copy(type, sizeof type, web[slot].type);
+        sys_unlock(lock);
+        send_text(s, "200 OK", type, (const char *)d, n, NULL);
+        free(d);
+        return;
+    }
+    sys_unlock(lock);
+    const char *site = getenv("PICOAMP_WEBAPP");
+    char u[400], e[160];
+    snprintf(u, sizeof u, "%s%s", site && *site ? site : WEB_SITE, name);
+    int status = 0;
+    net_conn *c = net_get(u, NULL, &status, e, sizeof e, NULL);
+    if (!c || status != 200)
+    {
+        if (c) net_close(c);
+        char m[300];
+        int n = snprintf(m, sizeof m, "PicoAmp for the web could not be fetched (%s)\n", status ? "not there" : e);
+        send_text(s, "502 Bad Gateway", "text/plain", m, (size_t)n, NULL);
+        return;
+    }
+    char type[64];
+    const char *ct = net_header(c, "Content-Type");
+    // (the browser compiles wasm while it comes only when it is called so)
+    u_copy(type, sizeof type, u_ends_with_ci(name, ".wasm") ? "application/wasm" : ct ? ct : "application/octet-stream");
+    size_t cap = 65536, n = 0;
+    uint8_t *d = malloc(cap);
+    for (;;)
+    {
+        if (n == cap) { if (cap >= 16u << 20) break; cap *= 2; d = realloc(d, cap); }
+        long r = net_read(c, d + n, cap - n);
+        if (r <= 0) break;
+        n += (size_t)r;
+    }
+    net_close(c);
+    send_text(s, "200 OK", type, (const char *)d, n, NULL);
+    sys_lock(lock);
+    free(web[oldest].data);
+    u_copy(web[oldest].name, sizeof web[oldest].name, name);
+    u_copy(web[oldest].type, sizeof web[oldest].type, type);
+    web[oldest].data = d;
+    web[oldest].len = n;
+    web[oldest].at = sys_millis();
+    sys_unlock(lock);
+}
+
 static int client_main(void *arg)
 {
     sock_t s = (sock_t)(intptr_t)arg;
@@ -654,12 +827,14 @@ static int client_main(void *arg)
     }
     req[got] = 0;
     char path[1024] = "";
-    if (!strncmp(req, "GET ", 4))
+    bool options = !strncmp(req, "OPTIONS ", 8);
+    if (!strncmp(req, "GET ", 4) || options)
     {
-        const char *e = strchr(req + 4, ' ');
-        size_t l = e ? (size_t)(e - req - 4) : 0;
+        const char *b0 = req + (options ? 8 : 4);
+        const char *e = strchr(b0, ' ');
+        size_t l = e ? (size_t)(e - b0) : 0;
         if (l >= sizeof path) l = sizeof path - 1;
-        memcpy(path, req + 4, l);
+        memcpy(path, b0, l);
         path[l] = 0;
     }
     char lower[4096];
@@ -671,6 +846,12 @@ static int client_main(void *arg)
     if (qm) *qm = 0;
 
     if (!path[0]) send_text(s, "400 Bad Request", "text/plain", "GET only\n", 9, NULL);
+    else if (options)
+        // a page of another site asks first (CORS, and Chrome's private network access)
+        send_text(s, "204 No Content", "text/plain", "", 0,
+                  "Access-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Max-Age: 600\r\n");
+    else if (!strncmp(p0, "/sonos/", 7)) sonos_bridge(s, p0 + 7, path);
+    else if (!strcmp(p0, "/web") || !strncmp(p0, "/web/", 5)) web_app(s, path);
     else if (!strcmp(p0, "/") || !strcmp(p0, "/stream.mp3") || !strcmp(p0, "/stream") || !strcmp(p0, "/;")) stream(s, meta);
     else if (!strcmp(p0, "/screen")) screen(s);
     else if (!strcmp(p0, "/cmd"))
