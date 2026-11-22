@@ -21,6 +21,8 @@
 #include "sys.h"
 #include "util.h"
 #include "nowplaying.h"
+#include "sonos.h"
+#include "config.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -92,6 +94,25 @@ static uint32_t     loop_pid;             // whose sound (0: all of the PC)
 static uint32_t     loop_tried;           // when the loopback was last tried
 static np_info      sys_now;
 static uint32_t     sys_polled;
+
+// whom PicoAmp follows: a program of the PC (Windows's media controls), or a
+// Sonos room (its sound stays on the speakers: no loopback, the bars pretend)
+typedef struct
+{
+    void (*end)(void);
+    bool (*get)(np_info *);
+    bool (*art)(uint8_t **, size_t *);
+    void (*cmd)(int, int);
+    void (*volume)(int, bool);
+    bool loopback;
+} follow_ops;
+static const follow_ops sys_ops   = { np_end, np_get, np_art, np_cmd, np_volume, true };
+static const follow_ops sonos_ops = { sonos_end, sonos_get, sonos_art, sonos_cmd, sonos_volume, false };
+static const follow_ops *volatile fol = &sys_ops;
+static char         fol_id[64];           // the Sonos room's id ("": a program of the PC)
+static uint32_t     bars_at;              // the pretend bars: the next 10 ms
+static uint32_t     bars_rng = 12345;
+static float        bars_lp[4], bars_env, bars_beat;
 
 // ---------------- the device ----------------
 static void callback(ma_device *d, void *out, const void *in, ma_uint32 frames)
@@ -220,10 +241,11 @@ static void loop_open(uint32_t pid)
 static void sys_leave(bool pause_it)
 {
     if (!following) return;
-    if (pause_it && sys_now.state == NP_PLAYING) np_cmd(NP_PAUSE, 0);
+    if (pause_it && sys_now.state == NP_PLAYING) fol->cmd(NP_PAUSE, 0);
     following = false;
     sys_vol_known = false;
-    np_end();
+    fol->end();
+    fol_id[0] = 0;
     loop_close();
     sys_lock(st_lock);
     st.system = false;
@@ -244,9 +266,9 @@ static void sys_leave(bool pause_it)
 static void sys_poll(void)
 {
     np_info i;
-    if (!np_get(&i)) return;
+    if (!fol->get(&i)) return;
     sys_vol_known = i.volume >= 0;
-    if (i.audio_pid != loop_pid || (!loop_ok && sys_millis() - loop_tried > 5000)) loop_open(i.audio_pid);
+    if (fol->loopback && (i.audio_pid != loop_pid || (!loop_ok && sys_millis() - loop_tried > 5000))) loop_open(i.audio_pid);
     int rate = loop_ok ? (int)loop_dev.sampleRate : 0;
     sys_lock(st_lock);
     sys_now = i;
@@ -257,9 +279,10 @@ static void sys_poll(void)
     st.state = i.state == NP_PLAYING ? ST_PLAYING : i.state == NP_PAUSED ? ST_PAUSED : ST_STOPPED;
     u_copy(st.source, sizeof st.source, i.state == NP_NONE ? "" : i.app);
     u_copy(st.title, sizeof st.title, i.title);
-    u_copy(st.artist, sizeof st.artist, i.state == NP_NONE ? "Start Spotify (or another player)" : i.artist);
+    u_copy(st.artist, sizeof st.artist, i.state == NP_NONE && fol == &sys_ops ? "Start Spotify (or another player)" : i.artist);
     u_copy(st.album, sizeof st.album, i.album);
-    snprintf(st.url, sizeof st.url, "system:%s", i.app);
+    if (fol_id[0]) snprintf(st.url, sizeof st.url, "sonos:%s", fol_id);
+    else snprintf(st.url, sizeof st.url, "system:%s", i.app);
     st.elapsed = i.elapsed_ms / 1000;
     st.total = i.total_ms / 1000;
     st.seekable = i.can_seek && i.total_ms > 0;
@@ -278,20 +301,73 @@ static void sys_poll(void)
     sys_unlock(st_lock);
 }
 
+// a Sonos room's sound does not come here: while it plays, the bars move on a
+// pretend sound (noise through four wandering filters, with a beat), quieter
+// with its volume; still while it pauses. [sonos] sonos_bars = off: no bars.
+static float bars_rand(void)
+{
+    bars_rng = bars_rng * 1664525u + 1013904223u;
+    return (float)((bars_rng >> 8) & 0xFFFF) / 32768.0f - 1.0f;
+}
+
+static void pretend_bars(void)
+{
+    uint32_t now = sys_millis();
+    if (!cfg.sonos_bars || sys_now.state != NP_PLAYING || sys_now.muted) { bars_at = now; return; }
+    if ((int32_t)(now - bars_at) < 10) return;
+    if ((int32_t)(now - bars_at) > 100) bars_at = now - 10;
+    static int16_t pcm[480 * 2];
+    static float cut[4] = { 0.02f, 0.08f, 0.25f, 0.6f }, amp[4] = { 1.0f, 0.6f, 0.35f, 0.2f };
+    float vol = sys_now.volume >= 0 ? 0.35f + 0.65f * (float)sys_now.volume / 100.0f : 1.0f;
+    while ((int32_t)(now - bars_at) >= 10)
+    {
+        bars_at += 10;
+        // the beat: about 120 a minute, a little uneven
+        bars_beat += 0.02f + 0.002f * bars_rand();
+        if (bars_beat >= 1.0f) { bars_beat -= 1.0f; bars_env = 1.0f; }
+        bars_env *= 0.93f;
+        for (int k = 0; k < 4; k++)
+        {
+            amp[k] += 0.03f * bars_rand();
+            if (amp[k] < 0.1f) amp[k] = 0.1f;
+            if (amp[k] > 1.0f) amp[k] = 1.0f;
+        }
+        for (int n = 0; n < 480; n++)
+        {
+            float w = bars_rand(), o = 0;
+            for (int k = 0; k < 4; k++)
+            {
+                bars_lp[k] += cut[k] * (w - bars_lp[k]);
+                float band = k ? bars_lp[k] - bars_lp[k - 1] : bars_lp[0] * (1.0f + 2.5f * bars_env);
+                o += band * amp[k];
+            }
+            int v = (int)(o * 9000.0f * vol);
+            if (v > 32767) v = 32767;
+            if (v < -32768) v = -32768;
+            pcm[2 * n] = pcm[2 * n + 1] = (int16_t)v;
+        }
+        viz_feed(pcm, 480, 48000);
+    }
+}
+
 static void close_source(void);
 static void flush_out(void);
 static void free_playlist(void);
 
-static void sys_enter(void)
+static void sys_enter(const char *sonos_id)
 {
-    if (following) return;
+    const char *id = sonos_id ? sonos_id : "";
+    if (following && !strcmp(id, fol_id)) return;
+    if (following) sys_leave(false);
     close_source();
     flush_out();
     out_paused = false;
     base_frames = 0;
     free_playlist();
     following = true;
-    np_start();
+    u_copy(fol_id, sizeof fol_id, id);
+    if (id[0]) { fol = &sonos_ops; sonos_start(id); }
+    else { fol = &sys_ops; np_start(); }
     src = SRC_SYSTEM;
     loop_pid = (uint32_t)-1;
     sys_lock(st_lock);
@@ -592,24 +668,24 @@ static void sys_cmd(cmd_t *c)
 {
     switch (c->type)
     {
-    case C_PAUSE:    np_cmd(NP_TOGGLE, 0); break;
-    case C_STOP:     np_cmd(NP_PAUSE, 0); break;          // (it stops by pausing: the track stays)
-    case C_NEXT:     np_cmd(NP_NEXT, 0); break;
-    case C_PREV:     np_cmd(NP_PREV, 0); break;
+    case C_PAUSE:    fol->cmd(NP_TOGGLE, 0); break;
+    case C_STOP:     fol->cmd(NP_PAUSE, 0); break;          // (it stops by pausing: the track stays)
+    case C_NEXT:     fol->cmd(NP_NEXT, 0); break;
+    case C_PREV:     fol->cmd(NP_PREV, 0); break;
     case C_SEEK_REL:
     {
         int ms = sys_now.elapsed_ms + c->arg * 1000;
         if (sys_now.total_ms && ms >= sys_now.total_ms) ms = sys_now.total_ms - 1000;
-        np_cmd(NP_SEEK_TO, ms < 0 ? 0 : ms);
+        fol->cmd(NP_SEEK_TO, ms < 0 ? 0 : ms);
         break;
     }
-    case C_SEEK_TO:  np_cmd(NP_SEEK_TO, c->arg * 1000); break;
+    case C_SEEK_TO:  fol->cmd(NP_SEEK_TO, c->arg * 1000); break;
     }
 }
 
 static void do_cmd(cmd_t *c)
 {
-    if (c->type == C_SYSTEM) { sys_enter(); return; }
+    if (c->type == C_SYSTEM) { sys_enter(c->url); free(c->url); c->url = NULL; return; }
     if (following)
     {
         if (c->type == C_FILES || c->type == C_URL) sys_leave(true);     // a file or a station: it takes over
@@ -809,6 +885,7 @@ static int dec_main(void *arg)
         if (src == SRC_SYSTEM)
         {
             if (sys_millis() - sys_polled >= 100) { sys_polled = sys_millis(); sys_poll(); }
+            if (fol == &sonos_ops) pretend_bars();
             sys_sleep_ms(10);
             continue;
         }
@@ -995,7 +1072,7 @@ void audio_shutdown(void)
     quit = true;
     dec_abort = true;
     sys_thread_join(dec_thread);
-    if (following) { np_end(); loop_close(); }
+    if (following) { fol->end(); loop_close(); }
     if (dev_ok) ma_device_uninit(&dev);
     ma_context_uninit(&ctx);
     ma_pcm_rb_uninit(&rb);
@@ -1030,6 +1107,8 @@ void audio_play_url(const char *url, const char *name)
 
 static void simple(int type, int arg) { cmd_t c = { type, arg, NULL, NULL, NULL, 0 }; post(c); }
 void audio_follow_system(void) { simple(C_SYSTEM, 0); }
+void audio_follow_sonos(const char *id) { cmd_t c = { C_SYSTEM, 0, strdup(id), NULL, NULL, 0 }; post(c); }
+bool audio_follow_art(uint8_t **data, size_t *len) { return fol->art(data, len); }
 void audio_set_tap(audio_tap_fn fn) { tap = fn; }
 bool audio_system_supported(void) { return np_supported(); }
 void audio_toggle_pause(void) { simple(C_PAUSE, 0); }
@@ -1046,7 +1125,7 @@ void audio_set_volume(int v)
     if (following && sys_vol_known)
     {
         // the program's own volume in the mixer
-        np_volume(v, st.muted);
+        fol->volume(v, st.muted);
         sys_lock(st_lock);
         st.volume = v;
         st_changed();
@@ -1065,7 +1144,7 @@ void audio_set_mute(bool m)
 {
     if (following && sys_vol_known)
     {
-        np_volume(st.volume, m);
+        fol->volume(st.volume, m);
         sys_lock(st_lock);
         st.muted = m;
         st_changed();
@@ -1098,8 +1177,8 @@ void audio_set_mode(int mode)
     {
         // the program's shuffle and repeat (repeat: of its list)
         int was = st.mode;
-        if ((mode ^ was) & MODE_SHUFFLE) np_cmd(NP_SHUFFLE, (mode & MODE_SHUFFLE) != 0);
-        if ((mode ^ was) & MODE_REPEAT) np_cmd(NP_REPEAT, (mode & MODE_REPEAT) ? NP_REPEAT_LIST : NP_REPEAT_OFF);
+        if ((mode ^ was) & MODE_SHUFFLE) fol->cmd(NP_SHUFFLE, (mode & MODE_SHUFFLE) != 0);
+        if ((mode ^ was) & MODE_REPEAT) fol->cmd(NP_REPEAT, (mode & MODE_REPEAT) ? NP_REPEAT_LIST : NP_REPEAT_OFF);
         sys_lock(st_lock);
         st.mode = mode;
         st_changed();

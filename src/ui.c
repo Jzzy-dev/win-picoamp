@@ -21,6 +21,7 @@
 #include "audio.h"
 #include "viz.h"
 #include "library.h"
+#include "sonos.h"
 #include "config.h"
 #include "sys.h"
 #include "util.h"
@@ -206,6 +207,15 @@ static void open_place(const char *place, const char *select_target)
 
 static void loading_poll(void)
 {
+    // the top list: Sonos shows once its rooms are found
+    static unsigned sonos_seen;
+    if (!is_loading && !list.place[0] && sonos_gen() != sonos_seen)
+    {
+        sonos_seen = sonos_gen();
+        char keep[2048] = "";
+        if (list.count && sel < list.count) u_copy(keep, sizeof keep, list.e[sel].target);
+        open_place("", keep);
+    }
     if (!is_loading) return;
     int r = lib_poll(&loading);
     if (r == LIB_PENDING) return;
@@ -264,6 +274,7 @@ static void activate(void)
     }
     if (e->type == E_FOLDER) { open_place(e->target, NULL); return; }
     if (e->type == E_SYSTEM) { audio_follow_system(); return; }
+    if (e->type == E_SONOS || (e->type == E_STATION && !strncmp(e->target, "sonos:", 6))) { audio_follow_sonos(e->target + 6); return; }
     if (e->type == E_STATION)
     {
         // the list's stations are the play list, as on the MSX (N / P)
@@ -625,7 +636,7 @@ static void cover_follow_system(void)
     if (st.art_gen != sys_art_seen)
     {
         sys_art_seen = st.art_gen;
-        if (np_art(&d, &n)) { cover_from_bytes(d, n); free(d); sys_art_shown = true; logo_cancel(LOGO_SONG); }
+        if (audio_follow_art(&d, &n)) { cover_from_bytes(d, n); free(d); sys_art_shown = true; logo_cancel(LOGO_SONG); }
         else if (!sys_art_shown && st.title[0])
         {
             show_default();

@@ -29,6 +29,7 @@ static void defaults(void)
     cfg.mk_refresh = 60;
     cfg.msx_port = 8765;
     cfg.msx_kbps = 160;
+    cfg.sonos_bars = true;
 }
 
 static const char *ini_path(void)
@@ -126,6 +127,8 @@ void config_load(void)
         else if (!u_stricmp(k, "msx_link")) cfg.msx_link = yes(v);
         else if (!u_stricmp(k, "msx_port")) cfg.msx_port = atoi(v);
         else if (!u_stricmp(k, "msx_kbps")) cfg.msx_kbps = atoi(v);
+        else if (!u_stricmp(k, "sonos_ip")) u_copy(cfg.sonos_ip, sizeof cfg.sonos_ip, v);
+        else if (!u_stricmp(k, "sonos_bars")) cfg.sonos_bars = yes(v);
     }
     free(text);
     if (cfg.msx_port < 1 || cfg.msx_port > 65535) cfg.msx_port = 8765;
@@ -211,5 +214,12 @@ void config_save(void)
             "; kbps: the stream's MP3 bitrate (128, 160, 192)\r\n"
             "msx_link = %s\r\nmsx_port = %d\r\nmsx_kbps = %d\r\n",
             cfg.msx_link ? "on" : "off", cfg.msx_port, cfg.msx_kbps);
+    if (n > 0 && (size_t)n < sizeof buf)
+        n += snprintf(buf + n, sizeof buf - (size_t)n,
+            "[sonos]\r\n"
+            "; sonos_ip: speakers to ask when the search finds none (e.g. 192.168.1.30, a comma between them);\r\n"
+            "; sonos_bars: the bars move while a Sonos room plays (its sound itself does not come to this PC)\r\n"
+            "sonos_ip = %s\r\nsonos_bars = %s\r\n",
+            cfg.sonos_ip, cfg.sonos_bars ? "on" : "off");
     if (n > 0 && (size_t)n < sizeof buf) sys_write_file(ini_path(), buf, (size_t)n);
 }

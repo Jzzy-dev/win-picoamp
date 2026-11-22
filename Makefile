@@ -13,7 +13,7 @@ VERSION  ?= 0.1.0
 
 COMMON   = src/gfx.c src/ui.c src/fullscreen.c src/clock.c src/weather.c src/wxsvc.c src/news.c src/newsfeed.c src/audio.c src/viz.c src/eq.c src/stream.c src/net.c \
            src/library.c src/radiodir.c src/json.c src/config.c src/tags.c src/aacdec.c src/sys.c src/util.c src/png.c src/script.c src/miniaudio_impl.c \
-           src/cover.c src/pva_cover.c src/logo.c src/defaults.c src/picture.c src/pics.c src/markets.c src/mktsvc.c src/markets_cat.c src/lyrics.c src/lyricspage.c src/msxlink.c src/jpegenc.c
+           src/cover.c src/pva_cover.c src/logo.c src/defaults.c src/picture.c src/pics.c src/markets.c src/mktsvc.c src/markets_cat.c src/lyrics.c src/lyricspage.c src/msxlink.c src/jpegenc.c src/sonos.c
 HEADERS  = $(wildcard src/*.h)
 CFLAGS   = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
            -Ithird_party/miniaudio -Ithird_party/tjpgd -DPICOAMP_VERSION=\"$(VERSION)\"
