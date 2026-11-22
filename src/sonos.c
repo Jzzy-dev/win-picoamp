@@ -380,9 +380,11 @@ static char        derr[128];
 static uint32_t    dtime;              // when the rooms were last found
 static sys_thread *dthread;
 
+static sys_mutex  *dlock;
+
 static void init_once(void)
 {
-    if (!lock) lock = sys_mutex_new();
+    if (!lock) { lock = sys_mutex_new(); dlock = sys_mutex_new(); }
 }
 
 bool sonos_supported(void) { return true; }
@@ -613,11 +615,15 @@ static int disc_main(void *arg)
 void sonos_discover(bool fresh)
 {
     init_once();
-    if (dstate == SONOS_LOADING) return;
-    if (!fresh && dstate == SONOS_DONE && sys_millis() - dtime < 60000) return;
-    if (dthread) sys_thread_join(dthread);
-    dstate = SONOS_LOADING;
-    dthread = sys_thread_start(disc_main, NULL);
+    // (the screen, the followed room's thread and the bridge may all ask at once)
+    sys_lock(dlock);
+    if (dstate != SONOS_LOADING && (fresh || dstate != SONOS_DONE || sys_millis() - dtime >= 60000))
+    {
+        if (dthread) sys_thread_join(dthread);
+        dstate = SONOS_LOADING;
+        dthread = sys_thread_start(disc_main, NULL);
+    }
+    sys_unlock(dlock);
 }
 
 // ---------------------------------------------------------------- one room, now
