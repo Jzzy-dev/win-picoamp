@@ -157,14 +157,15 @@ static void sharp_drop_bitmap(void)
     if (sh_dc) { SelectObject(sh_dc, sh_old); DeleteObject(sh_bmp); DeleteDC(sh_dc); sh_dc = NULL; }
 }
 
-static void draw_sharp_cover(HDC dc, int dw, int dh)
+// ready to copy: where (in the window), else false
+static bool sharp_cover_ready(HDC dc, int dw, int dh, RECT *at)
 {
     int r[4];
     const uint8_t *d;
     size_t n;
     unsigned g;
     int kind = ui_sharp_cover(r, &d, &n, &g);
-    if (!kind || gfx_w != GFX_W || gfx_h != GFX_H) return;
+    if (!kind || gfx_w != GFX_W || gfx_h != GFX_H) return false;
     if (g != sh_gen || d != sh_data)
     {
         sh_gen = g;
@@ -186,19 +187,19 @@ static void draw_sharp_cover(HDC dc, int dw, int dh)
         }
         free(rgb);
     }
-    if (!sh_px) return;
+    if (!sh_px) return false;
     // the place, in the window's pixels
     int x0 = dest.left + (int)((long long)r[0] * dw / GFX_W), y0 = dest.top + (int)((long long)r[1] * dh / GFX_H);
     int x1 = dest.left + (int)((long long)(r[0] + r[2]) * dw / GFX_W), y1 = dest.top + (int)((long long)(r[1] + r[3]) * dh / GFX_H);
     int tw = x1 - x0, th = y1 - y0;
-    if (tw < 2 || th < 2) return;
+    if (tw < 2 || th < 2) return false;
     if (!sh_dc || kind != sh_kind || tw != sh_tw || th != sh_th)
     {
         sharp_drop_bitmap();
         sh_kind = kind, sh_tw = tw, sh_th = th;
         sh_dc = CreateCompatibleDC(dc);
         sh_bmp = CreateCompatibleBitmap(dc, tw, th);
-        if (!sh_dc || !sh_bmp) { if (sh_dc) DeleteDC(sh_dc); if (sh_bmp) DeleteObject(sh_bmp); sh_dc = NULL; return; }
+        if (!sh_dc || !sh_bmp) { if (sh_dc) DeleteDC(sh_dc); if (sh_bmp) DeleteObject(sh_bmp); sh_dc = NULL; return false; }
         sh_old = SelectObject(sh_dc, sh_bmp);
         RECT a = { 0, 0, tw, th };
         FillRect(sh_dc, &a, GetStockObject(BLACK_BRUSH));
@@ -211,9 +212,11 @@ static void draw_sharp_cover(HDC dc, int dw, int dh)
         }
         else
         {
-            // whole, as large as the place takes (the rest black)
-            if ((long long)sw * th > (long long)shh * tw) { oh = (int)((long long)shh * tw / sw); oy = (th - oh) / 2; }
-            else { ow = (int)((long long)sw * th / shh); ox = (tw - ow) / 2; }
+            // whole, as large as the place takes (the rest black), as big as the MSX's (its dot is
+            // 1.1 as wide as high: the picture 10/11 as wide)
+            long long vw = (long long)sw * 10;          // (the width x 11)
+            if (vw * th > (long long)shh * 11 * tw) { oh = (int)((long long)shh * 11 * tw / vw); oy = (th - oh) / 2; }
+            else { ow = (int)(vw * th / ((long long)shh * 11)); ox = (tw - ow) / 2; }
         }
         BITMAPINFO bi = { 0 };
         bi.bmiHeader.biSize = sizeof bi.bmiHeader;
@@ -227,7 +230,8 @@ static void draw_sharp_cover(HDC dc, int dw, int dh)
         // (bottom-up: the source's y from the bottom)
         StretchDIBits(sh_dc, ox, oy, ow, oh, sx, sh_h - sy - shh, sw, shh, sh_px, &bi, DIB_RGB_COLORS, SRCCOPY);
     }
-    BitBlt(dc, x0, y0, tw, th, sh_dc, 0, 0, SRCCOPY);
+    SetRect(at, x0, y0, x1, y1);
+    return true;
 }
 
 static void present(HDC dc)
@@ -259,11 +263,19 @@ static void present(HDC dc)
     QueryPerformanceFrequency(&f);
     QueryPerformanceCounter(&t0);
     bool smooth = !exact && smooth_ok;
+    // the sharp cover: the MSX's picture not drawn under it (else both show in turn: flicker)
+    RECT sr;
+    bool sharp = sharp_cover_ready(dc, dw, dh, &sr);
+    if (sharp) ExcludeClipRect(dc, sr.left, sr.top, sr.right, sr.bottom);
     SetStretchBltMode(dc, smooth ? HALFTONE : COLORONCOLOR);
     if (smooth) SetBrushOrgEx(dc, 0, 0, NULL);
     StretchDIBits(dc, dest.left, dest.top, dw, dh, 0, 0, gfx_w * kx, gfx_h * ky, big, &big_bmi, DIB_RGB_COLORS, SRCCOPY);
     QueryPerformanceCounter(&t1);
-    draw_sharp_cover(dc, dw, dh);
+    if (sharp)
+    {
+        SelectClipRgn(dc, NULL);
+        BitBlt(dc, sr.left, sr.top, sr.right - sr.left, sr.bottom - sr.top, sh_dc, 0, 0, SRCCOPY);
+    }
     // smoothing too slow on this machine (or remote desktop): plain copies
     if (smooth && (t1.QuadPart - t0.QuadPart) * 1000 / f.QuadPart > 14)
     {
