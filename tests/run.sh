@@ -353,12 +353,17 @@ WEBAPP=$!
 sleep 0.5
 LP=18778
 sed -i "s|^msx_port = .*|msx_port = $LP|" $T/cfg/picoamp.ini
+mkdir -p "$T/Pics/Trip one" && cp msx_cover.jpg "$T/Pics/Trip one/Beach.jpg" && echo x > "$T/Pics/notes.txt" && cp msx_cover.jpg "$T/Pics/.hidden.jpg"
+if grep -q '^pictures = ' $T/cfg/picoamp.ini; then sed -i "s|^pictures = .*|pictures = $PWD/$T/Pics|" $T/cfg/picoamp.ini; else printf '[pictures]\npictures = %s\n' "$PWD/$T/Pics" >> $T/cfg/picoamp.ini; fi
 PICOAMP_WEBAPP=http://127.0.0.1:18960/ PICOAMP_CONFIG=$T/cfg timeout 30 $BIN "msxlink on; wait 9000; msxlink off" > /dev/null 2>&1 &
 APP=$!
 sleep 2.5
 br=$(curl -s "http://127.0.0.1:$LP/sonos/rooms"; echo; curl -s "http://127.0.0.1:$LP/sonos/now?id=RINCON_A"; curl -s "http://127.0.0.1:$LP/sonos/cmd?id=RINCON_A&c=pause";
      curl -s "http://127.0.0.1:$LP/sonos/vol?id=RINCON_B&v=12&m=1"; curl -s "http://127.0.0.1:$LP/sonos/now?id=RINCON_B"; echo "art $(curl -s "http://127.0.0.1:$LP/sonos/art?id=RINCON_A" | wc -c)";
-     curl -si -X OPTIONS "http://127.0.0.1:$LP/sonos/rooms" | tr -d '\r'; curl -s "http://127.0.0.1:$LP/web/"; curl -si "http://127.0.0.1:$LP/web/picoamp.wasm" | tr -d '\r' | grep -a -i '^content-type' || true)
+     curl -si -X OPTIONS "http://127.0.0.1:$LP/sonos/rooms" | tr -d '\r'; curl -s "http://127.0.0.1:$LP/web/"; curl -si "http://127.0.0.1:$LP/web/picoamp.wasm" | tr -d '\r' | grep -a -i '^content-type' || true;
+     echo "pics:"; curl -s "http://127.0.0.1:$LP/pics/list?path="; curl -s "http://127.0.0.1:$LP/pics/list?path=Trip%20one";
+     echo "pic $(curl -s "http://127.0.0.1:$LP/pics/file?path=Trip%20one/Beach.jpg" | cmp - msx_cover.jpg >/dev/null && echo same)";
+     echo "up $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/pics/list?path=..")")
 wait $APP || true
 kill $WEBAPP 2>/dev/null || true
 check "sonos bridge: the rooms" "$br" '"rooms":\[{"id":"RINCON_B","name":"Kitchen + 1","members":2},{"id":"RINCON_A","name":"Living Room","members":1}\]'
@@ -369,6 +374,9 @@ check "sonos bridge: the cover" "$br" "^art [1-9][0-9]*"
 check "sonos bridge: a page of another site may ask" "$br" "^Access-Control-Allow-Private-Network: true"
 check "the web app from this PC" "$br" "^<html>PicoAmp web</html>"
 check "the web app: wasm as wasm" "$br" "^Content-Type: application/wasm"
+check "pictures bridge: the folder (folders, pictures; no others)" "$(printf '%s\n' "$br" | sed -n '/^pics:/,/^pic /p' | tr '\n' '|')" "^pics:\|d Trip one\|d Trip one\|f Beach.jpg\|pic |^pics:\|d Trip one\|f Beach.jpg\|pic "
+check "pictures bridge: a picture" "$br" "^pic same"
+check "pictures bridge: nothing above the folder" "$br" "^up 403"
 kill $SON 2>/dev/null || true
 unset PICOAMP_SSDP
 

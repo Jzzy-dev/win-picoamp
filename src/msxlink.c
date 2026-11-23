@@ -50,6 +50,7 @@ typedef int sock_t;
 #include "lyrics.h"
 #include "sonos.h"
 #include "net.h"
+#include "config.h"
 
 #define RATE        44100
 #define PCM_FRAMES  (2 * 96000)          // the PCM ring: 2 s at 96 kHz
@@ -735,6 +736,92 @@ static void sonos_bridge(sock_t s, const char *what, const char *path)
     send_text(s, "404 Not Found", "text/plain", "rooms now cmd vol art\n", 22, NULL);
 }
 
+// ---------------------------------------------------------------- the pictures folder
+// PicoAmp on a TV (the Android app) or in a browser shows this PC's pictures (the Pictures page's
+// folder: [pictures] folder in picoamp.ini, else the Pictures folder):
+//   /pics/list?path=a/b        the folder's folders and pictures, a line each: "d name" or "f name"
+//   /pics/file?path=a/b/c.jpg  a picture's bytes
+// (path: '/' between the folders, %-escaped; nothing above the folder)
+static int hexv(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
+static void pct_decode(char *t)
+{
+    char *o = t;
+    for (const char *i = t; *i; i++)
+    {
+        if (*i == '%' && hexv(i[1]) >= 0 && hexv(i[2]) >= 0) { *o++ = (char)(hexv(i[1]) * 16 + hexv(i[2])); i += 2; }
+        else *o++ = *i == '+' ? ' ' : *i;
+    }
+    *o = 0;
+}
+
+static const char *pic_type(const char *name)
+{
+    const char *e = strrchr(name, '.');
+    if (!e) return NULL;
+    char x[8] = "";
+    for (int i = 0; i < 7 && e[i + 1]; i++) x[i] = (char)(e[i + 1] >= 'A' && e[i + 1] <= 'Z' ? e[i + 1] + 32 : e[i + 1]);
+    if (!strcmp(x, "jpg") || !strcmp(x, "jpeg")) return "image/jpeg";
+    if (!strcmp(x, "png")) return "image/png";
+    if (!strcmp(x, "gif")) return "image/gif";
+    if (!strcmp(x, "bmp")) return "image/bmp";
+    if (!strcmp(x, "webp")) return "image/webp";
+    return NULL;
+}
+
+static void pics_bridge(sock_t s, const char *what, const char *path)
+{
+    char rel[1024];
+    query(path, "path", rel, sizeof rel);
+    pct_decode(rel);
+    // nothing above the folder, no drives
+    bool ok = !strchr(rel, ':') && !strchr(rel, '\\') && rel[0] != '/';
+    for (const char *p = rel; ok && *p; )
+    {
+        const char *e = strchr(p, '/');
+        size_t l = e ? (size_t)(e - p) : strlen(p);
+        if ((l == 2 && !strncmp(p, "..", 2)) || (l == 1 && p[0] == '.')) ok = false;
+        p = e ? e + 1 : p + l;
+    }
+    if (!ok) { send_text(s, "403 Forbidden", "text/plain", "not here\n", 9, NULL); return; }
+    const char *root = cfg.pic_folder[0] ? cfg.pic_folder : sys_pictures_dir();
+    char full[2048];
+    snprintf(full, sizeof full, "%s%s%s", root, rel[0] ? "/" : "", rel);
+#ifdef _WIN32
+    for (char *p = full; *p; p++) if (*p == '/') *p = '\\';
+#endif
+    if (!strcmp(what, "list"))
+    {
+        sys_dirent *d = NULL;
+        int n = 0;
+        if (!sys_list_dir(full, &d, &n)) { send_text(s, "404 Not Found", "text/plain", "no such folder\n", 15, NULL); return; }
+        size_t cap = 256, len = 0;
+        for (int i = 0; i < n; i++) cap += strlen(d[i].name) + 4;
+        char *b = malloc(cap);
+        if (!b) { sys_free_dir(d, n); return; }
+        b[0] = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (d[i].name[0] == '.' || (!d[i].is_dir && !pic_type(d[i].name))) continue;
+            len += (size_t)snprintf(b + len, cap - len, "%c %s\n", d[i].is_dir ? 'd' : 'f', d[i].name);
+        }
+        sys_free_dir(d, n);
+        send_text(s, "200 OK", "text/plain; charset=utf-8", b, len, NULL);
+        free(b);
+        return;
+    }
+    if (!strcmp(what, "file"))
+    {
+        const char *type = pic_type(full);
+        size_t n = 0;
+        char *b = type ? sys_read_file(full, &n) : NULL;
+        if (!b) { send_text(s, "404 Not Found", "text/plain", "no such picture\n", 16, NULL); return; }
+        send_text(s, "200 OK", type, b, n, NULL);
+        free(b);
+        return;
+    }
+    send_text(s, "404 Not Found", "text/plain", "list or file\n", 13, NULL);
+}
+
 // ---------------------------------------------------------------- PicoAmp for the web, from this PC
 // /web/... is PicoAmp for the web, fetched from its site (and kept for an hour), so a phone or a
 // tablet in this network opens it on http://<this PC>:<port>/web/: then it may ask /sonos/ here (a
@@ -851,6 +938,7 @@ static int client_main(void *arg)
         send_text(s, "204 No Content", "text/plain", "", 0,
                   "Access-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Max-Age: 600\r\n");
     else if (!strncmp(p0, "/sonos/", 7)) sonos_bridge(s, p0 + 7, path);
+    else if (!strncmp(p0, "/pics/", 6)) pics_bridge(s, p0 + 6, path);
     else if (!strcmp(p0, "/web") || !strncmp(p0, "/web/", 5)) web_app(s, path);
     else if (!strcmp(p0, "/") || !strcmp(p0, "/stream.mp3") || !strcmp(p0, "/stream") || !strcmp(p0, "/;")) stream(s, meta);
     else if (!strcmp(p0, "/screen")) screen(s);
