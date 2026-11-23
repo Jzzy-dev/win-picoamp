@@ -93,6 +93,12 @@ grep -q "^balance = 55" $T/cfg/picoamp.ini && echo "ok   balance" || { echo "FAI
 sed -i "s|^eq = .*|eq = 0,0,0,0,0|; s|^balance = .*|balance = 50|" $T/cfg/picoamp.ini
 out=$(run "key End; key Enter; wait 800; key Z; key Left; wait 300; shot $T/fullcover.png 3; key Z")
 check "full screen: the cover" "$out" "shot $T/fullcover.png: ok"
+# F5: the covers sharp (their own pixels over the MSX's: the player's square, full screen whole); F5 again: as the MSX
+out=$(run "key End; key Enter; wait 800; key V; key V; key F5; wait 200; page; key Z; key Left; wait 300; page; key Z; key F5; page; key V")
+check "sharp covers: on the player (its square)" "$out" "^page 0 cover=ready sharp=player 8,48 80x80"
+check "sharp covers: full screen (whole)" "$out" "^page 1 sharp=full 0,8 256x168"
+check "sharp covers: F5 again: as the MSX" "$(printf '%s\n' "$out" | grep '^page 0' | tail -1)" "^page 0 cover=ready\$"
+grep -q "^sharp = off" $T/cfg/picoamp.ini && echo "ok   sharp covers: kept (off)" || { echo "FAIL sharp covers: not kept"; grep "^sharp" $T/cfg/picoamp.ini; fail=1; }
 
 # favourites: F adds, D removes
 sed -i "s|^folder = .*|folder = radio:Test.m3u|" $T/cfg/picoamp.ini

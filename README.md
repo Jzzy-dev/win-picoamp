@@ -201,6 +201,9 @@ Details below, under What it does.
     the last step is smoothed, so every MSX pixel is an even, crisp block.
   * F2 switches to whole multiples only or to stretching; F3 adds scan lines; F11 (or Alt+Enter) goes
     full screen.
+  * **F5: sharp covers.** The cover shows in its own resolution (the cover view's square and the full
+    screen cover) instead of as the MSX shows it in 8-bit colours; F5 again goes back. It is kept
+    (`sharp = ` under `[cover]` in picoamp.ini).
 * **Your own lists:**
   * Every `.m3u` or `.pls` file in `%APPDATA%\PicoAmp\Radio` is a list of its own under Internet radio.
     Edit them in any text editor; O opens the folder.
@@ -229,7 +232,7 @@ Details below, under What it does.
 | I | Pictures and slideshow | $ | Markets |
 | F / D | Favourite add / remove | Ctrl+Up/Down | Move a favourite |
 | O | Open the station lists' folder | Q | Quit |
-| F11, Alt+Enter | Full screen | F2 / F3 / F4 | Scaling / scan lines / always on top |
+| F11, Alt+Enter | Full screen | F2 / F3 / F4 / F5 | Scaling / scan lines / always on top / sharp covers |
 
 **Clock:** Left/Right or V switches the face, I the time (the place's zone or the PC's), L the place,
 X the colours, B the small spectrum, O the sleep timer, A the alarm.

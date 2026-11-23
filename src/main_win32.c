@@ -142,6 +142,94 @@ static void blow_up(int kx, int ky, bool scan)
     }
 }
 
+// ---------------- the cover, sharp (F5: cfg.cover_sharp) ----------------
+// The cover's own picture over the MSX's 8-bit one (ui_sharp_cover says where): decoded once (WIC,
+// at most 1024 pixels), made the place's size once (smoothed), then copied each frame.
+static uint32_t *sh_px;                 // the picture, bottom-up rows (a DIB's)
+static int       sh_w, sh_h, sh_kind, sh_tw, sh_th;
+static unsigned  sh_gen = ~0u;
+static const uint8_t *sh_data;
+static HDC       sh_dc;
+static HBITMAP   sh_bmp, sh_old;
+
+static void sharp_drop_bitmap(void)
+{
+    if (sh_dc) { SelectObject(sh_dc, sh_old); DeleteObject(sh_bmp); DeleteDC(sh_dc); sh_dc = NULL; }
+}
+
+static void draw_sharp_cover(HDC dc, int dw, int dh)
+{
+    int r[4];
+    const uint8_t *d;
+    size_t n;
+    unsigned g;
+    int kind = ui_sharp_cover(r, &d, &n, &g);
+    if (!kind || gfx_w != GFX_W || gfx_h != GFX_H) return;
+    if (g != sh_gen || d != sh_data)
+    {
+        sh_gen = g;
+        sh_data = d;
+        free(sh_px);
+        sh_px = NULL;
+        sharp_drop_bitmap();
+        int w, h;
+        uint8_t *rgb = plat_decode_rgb(d, n, 1024, 1024, &w, &h);
+        if (rgb && w > 0 && h > 0 && (sh_px = malloc((size_t)w * (size_t)h * 4)))
+        {
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    const uint8_t *q = rgb + ((size_t)y * (size_t)w + (size_t)x) * 3;
+                    sh_px[(size_t)(h - 1 - y) * (size_t)w + (size_t)x] = (uint32_t)q[0] << 16 | (uint32_t)q[1] << 8 | q[2];
+                }
+            sh_w = w, sh_h = h;
+        }
+        free(rgb);
+    }
+    if (!sh_px) return;
+    // the place, in the window's pixels
+    int x0 = dest.left + (int)((long long)r[0] * dw / GFX_W), y0 = dest.top + (int)((long long)r[1] * dh / GFX_H);
+    int x1 = dest.left + (int)((long long)(r[0] + r[2]) * dw / GFX_W), y1 = dest.top + (int)((long long)(r[1] + r[3]) * dh / GFX_H);
+    int tw = x1 - x0, th = y1 - y0;
+    if (tw < 2 || th < 2) return;
+    if (!sh_dc || kind != sh_kind || tw != sh_tw || th != sh_th)
+    {
+        sharp_drop_bitmap();
+        sh_kind = kind, sh_tw = tw, sh_th = th;
+        sh_dc = CreateCompatibleDC(dc);
+        sh_bmp = CreateCompatibleBitmap(dc, tw, th);
+        if (!sh_dc || !sh_bmp) { if (sh_dc) DeleteDC(sh_dc); if (sh_bmp) DeleteObject(sh_bmp); sh_dc = NULL; return; }
+        sh_old = SelectObject(sh_dc, sh_bmp);
+        RECT a = { 0, 0, tw, th };
+        FillRect(sh_dc, &a, GetStockObject(BLACK_BRUSH));
+        int sx = 0, sy = 0, sw = sh_w, shh = sh_h, ox = 0, oy = 0, ow = tw, oh = th;
+        if (kind == 1)
+        {
+            // the middle (a square), as the MSX takes it
+            int m = sw < shh ? sw : shh;
+            sx = (sw - m) / 2, sy = (shh - m) / 2, sw = shh = m;
+        }
+        else
+        {
+            // whole, as large as the place takes (the rest black)
+            if ((long long)sw * th > (long long)shh * tw) { oh = (int)((long long)shh * tw / sw); oy = (th - oh) / 2; }
+            else { ow = (int)((long long)sw * th / shh); ox = (tw - ow) / 2; }
+        }
+        BITMAPINFO bi = { 0 };
+        bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+        bi.bmiHeader.biWidth = sh_w;
+        bi.bmiHeader.biHeight = sh_h;
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        SetStretchBltMode(sh_dc, HALFTONE);
+        SetBrushOrgEx(sh_dc, 0, 0, NULL);
+        // (bottom-up: the source's y from the bottom)
+        StretchDIBits(sh_dc, ox, oy, ow, oh, sx, sh_h - sy - shh, sw, shh, sh_px, &bi, DIB_RGB_COLORS, SRCCOPY);
+    }
+    BitBlt(dc, x0, y0, tw, th, sh_dc, 0, 0, SRCCOPY);
+}
+
 static void present(HDC dc)
 {
     RECT cr;
@@ -175,6 +263,7 @@ static void present(HDC dc)
     if (smooth) SetBrushOrgEx(dc, 0, 0, NULL);
     StretchDIBits(dc, dest.left, dest.top, dw, dh, 0, 0, gfx_w * kx, gfx_h * ky, big, &big_bmi, DIB_RGB_COLORS, SRCCOPY);
     QueryPerformanceCounter(&t1);
+    draw_sharp_cover(dc, dw, dh);
     // smoothing too slow on this machine (or remote desktop): plain copies
     if (smooth && (t1.QuadPart - t0.QuadPart) * 1000 / f.QuadPart > 14)
     {
@@ -339,6 +428,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             cfg.scanlines = !cfg.scanlines;
             ui_message(cfg.scanlines ? "Scan lines on" : "Scan lines off", false);
             return 0;
+        case VK_F5: ui_key(K_F5); return 0;
         case VK_F4:
             cfg.on_top = !cfg.on_top;
             SetWindowPos(h, cfg.on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
