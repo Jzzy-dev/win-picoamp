@@ -33,6 +33,11 @@ PicoAmp can be the screen and remote of music it does not play itself, and pass 
 * **The MSX link (K)** sends it on to PicoAmp on the MSX (its screen and remote, or the sound), and
   it is the bridge that lets [PicoAmp for the web](https://github.com/Jzzy-dev/web-picoamp) reach
   the Sonos rooms. (PicoAmp on the MSX also finds Sonos rooms by itself.)
+* **Its pictures to a TV:** with the MSX link on, the Pictures page's folder (`pictures` in
+  `picoamp.ini`, else your Pictures folder) is shown by PicoAmp on Google TV or Android (Pictures,
+  *PicoAmp for Windows*, this PC's address): `/pics/list?path=` and `/pics/file?path=` on the MSX
+  link's port (8765), the folders and pictures only, nothing above that folder. Anyone in your
+  network can see them while the link is on.
 
 Details below, under What it does.
 
