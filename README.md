@@ -38,6 +38,9 @@ PicoAmp can be the screen and remote of music it does not play itself, and pass 
   *PicoAmp for Windows*, this PC's address): `/pics/list?path=` and `/pics/file?path=` on the MSX
   link's port (8765), the folders and pictures only, nothing above that folder. Anyone in your
   network can see them while the link is on.
+* **Its music to a TV:** the same for the music list's Music folder (*Choose a music folder*,
+  *PicoAmp for Windows*): `/music/list?path=` and `/music/file?path=`, the folders, songs and their
+  cover pictures. A song is streamed (Range: the part asked, so the TV seeks).
 
 Details below, under What it does.
 

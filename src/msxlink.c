@@ -736,11 +736,14 @@ static void sonos_bridge(sock_t s, const char *what, const char *path)
     send_text(s, "404 Not Found", "text/plain", "rooms now cmd vol art\n", 22, NULL);
 }
 
-// ---------------------------------------------------------------- the pictures folder
+// ---------------------------------------------------------------- the pictures and music folders
 // PicoAmp on a TV (the Android app) or in a browser shows this PC's pictures (the Pictures page's
-// folder: [pictures] folder in picoamp.ini, else the Pictures folder):
-//   /pics/list?path=a/b        the folder's folders and pictures, a line each: "d name" or "f name"
-//   /pics/file?path=a/b/c.jpg  a picture's bytes
+// folder: [pictures] folder in picoamp.ini, else the Pictures folder) and plays its music (the
+// list's Music folder):
+//   /pics/list?path=a/b         the folder's folders and pictures, a line each: "d name" or "f name"
+//   /pics/file?path=a/b/c.jpg   a picture's bytes
+//   /music/list?path=a/b        the folder's folders, music and pictures (its cover.jpg)
+//   /music/file?path=a/b/c.mp3  a song, streamed: Range gives a part (206; seeking, the tags)
 // (path: '/' between the folders, %-escaped; nothing above the folder)
 static int hexv(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
 static void pct_decode(char *t)
@@ -768,7 +771,89 @@ static const char *pic_type(const char *name)
     return NULL;
 }
 
-static void pics_bridge(sock_t s, const char *what, const char *path)
+static const char *music_type(const char *name)
+{
+    const char *e = strrchr(name, '.');
+    if (!e) return NULL;
+    char x[8] = "";
+    for (int i = 0; i < 7 && e[i + 1]; i++) x[i] = (char)(e[i + 1] >= 'A' && e[i + 1] <= 'Z' ? e[i + 1] + 32 : e[i + 1]);
+    if (!strcmp(x, "mp3")) return "audio/mpeg";
+    if (!strcmp(x, "flac")) return "audio/flac";
+    if (!strcmp(x, "m4a") || !strcmp(x, "mp4")) return "audio/mp4";
+    if (!strcmp(x, "aac")) return "audio/aac";
+    if (!strcmp(x, "ogg") || !strcmp(x, "oga") || !strcmp(x, "opus")) return "audio/ogg";
+    if (!strcmp(x, "wav")) return "audio/wav";
+    if (!strcmp(x, "webm")) return "audio/webm";
+    return NULL;
+}
+
+// a song: all of it, or the part Range asks for ("bytes=a-b", "bytes=a-", "bytes=-n"), in pieces
+static void send_song(sock_t s, const char *full, const char *type, const char *range)
+{
+    FILE *f = sys_fopen(full, "rb");
+    if (!f) { send_text(s, "404 Not Found", "text/plain", "no such song\n", 13, NULL); return; }
+    long long size = -1;
+#ifdef _WIN32
+    if (!_fseeki64(f, 0, SEEK_END)) size = _ftelli64(f);
+#else
+    if (!fseeko(f, 0, SEEK_END)) size = (long long)ftello(f);
+#endif
+    if (size < 0) { fclose(f); send_text(s, "500 Error", "text/plain", "cannot read\n", 12, NULL); return; }
+    long long a = 0, b = size - 1;
+    bool part = false;
+    if (range)
+    {
+        const char *r = strstr(range, "bytes=");
+        if (r)
+        {
+            r += 6;
+            char *end;
+            if (*r == '-') { long long n = strtoll(r + 1, &end, 10); a = n < size ? size - n : 0; }
+            else
+            {
+                a = strtoll(r, &end, 10);
+                if (*end == '-' && end[1] >= '0' && end[1] <= '9') b = strtoll(end + 1, NULL, 10);
+            }
+            if (b > size - 1) b = size - 1;
+            part = true;
+        }
+    }
+    if (part && (a > b || a >= size))
+    {
+        char x[96];
+        snprintf(x, sizeof x, "Content-Range: bytes */%lld\r\n", size);
+        fclose(f);
+        send_text(s, "416 Range Not Satisfiable", "text/plain", "", 0, x);
+        return;
+    }
+    char h[700];
+    int n = snprintf(h, sizeof h, "HTTP/1.0 %s\r\nContent-Type: %s\r\nContent-Length: %lld\r\nAccept-Ranges: bytes\r\n"
+                                  "Access-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length\r\n"
+                                  "Cache-Control: no-cache\r\nConnection: close\r\n",
+                     part ? "206 Partial Content" : "200 OK", type, b - a + 1);
+    if (part) n += snprintf(h + n, sizeof h - (size_t)n, "Content-Range: bytes %lld-%lld/%lld\r\n", a, b, size);
+    n += snprintf(h + n, sizeof h - (size_t)n, "\r\n");
+#ifdef _WIN32
+    _fseeki64(f, a, SEEK_SET);
+#else
+    fseeko(f, (off_t)a, SEEK_SET);
+#endif
+    if (send_all(s, h, (size_t)n))
+    {
+        char *bb = malloc(65536);
+        long long left = b - a + 1;
+        while (bb && left > 0)
+        {
+            size_t k = fread(bb, 1, left < 65536 ? (size_t)left : 65536, f);
+            if (!k || !send_all(s, bb, k)) break;
+            left -= (long long)k;
+        }
+        free(bb);
+    }
+    fclose(f);
+}
+
+static void pics_bridge(sock_t s, const char *what, const char *path, const char *range, bool music)
 {
     char rel[1024];
     query(path, "path", rel, sizeof rel);
@@ -783,7 +868,7 @@ static void pics_bridge(sock_t s, const char *what, const char *path)
         p = e ? e + 1 : p + l;
     }
     if (!ok) { send_text(s, "403 Forbidden", "text/plain", "not here\n", 9, NULL); return; }
-    const char *root = cfg.pic_folder[0] ? cfg.pic_folder : sys_pictures_dir();
+    const char *root = music ? (cfg.music_dir[0] ? cfg.music_dir : sys_music_dir()) : cfg.pic_folder[0] ? cfg.pic_folder : sys_pictures_dir();
     char full[2048];
     snprintf(full, sizeof full, "%s%s%s", root, rel[0] ? "/" : "", rel);
 #ifdef _WIN32
@@ -801,7 +886,7 @@ static void pics_bridge(sock_t s, const char *what, const char *path)
         b[0] = 0;
         for (int i = 0; i < n; i++)
         {
-            if (d[i].name[0] == '.' || (!d[i].is_dir && !pic_type(d[i].name))) continue;
+            if (d[i].name[0] == '.' || (!d[i].is_dir && !pic_type(d[i].name) && !(music && music_type(d[i].name)))) continue;
             len += (size_t)snprintf(b + len, cap - len, "%c %s\n", d[i].is_dir ? 'd' : 'f', d[i].name);
         }
         sys_free_dir(d, n);
@@ -809,6 +894,7 @@ static void pics_bridge(sock_t s, const char *what, const char *path)
         free(b);
         return;
     }
+    if (!strcmp(what, "file") && music && music_type(full)) { send_song(s, full, music_type(full), range); return; }
     if (!strcmp(what, "file"))
     {
         const char *type = pic_type(full);
@@ -938,7 +1024,22 @@ static int client_main(void *arg)
         send_text(s, "204 No Content", "text/plain", "", 0,
                   "Access-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Max-Age: 600\r\n");
     else if (!strncmp(p0, "/sonos/", 7)) sonos_bridge(s, p0 + 7, path);
-    else if (!strncmp(p0, "/pics/", 6)) pics_bridge(s, p0 + 6, path);
+    else if (!strncmp(p0, "/pics/", 6)) pics_bridge(s, p0 + 6, path, NULL, false);
+    else if (!strncmp(p0, "/music/", 7))
+    {
+        // (the Range asked: its line of the request)
+        char range[96] = "";
+        const char *r = strstr(lower, "\nrange:");
+        if (r)
+        {
+            r += 7;
+            while (*r == ' ') r++;
+            size_t k = 0;
+            while (r[k] && r[k] != '\r' && r[k] != '\n' && k + 1 < sizeof range) { range[k] = r[k]; k++; }
+            range[k] = 0;
+        }
+        pics_bridge(s, p0 + 7, path, range[0] ? range : NULL, true);
+    }
     else if (!strcmp(p0, "/web") || !strncmp(p0, "/web/", 5)) web_app(s, path);
     else if (!strcmp(p0, "/") || !strcmp(p0, "/stream.mp3") || !strcmp(p0, "/stream") || !strcmp(p0, "/;")) stream(s, meta);
     else if (!strcmp(p0, "/screen")) screen(s);

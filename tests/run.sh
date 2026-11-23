@@ -360,6 +360,8 @@ sleep 0.5
 LP=18778
 sed -i "s|^msx_port = .*|msx_port = $LP|" $T/cfg/picoamp.ini
 mkdir -p "$T/Pics/Trip one" && cp msx_cover.jpg "$T/Pics/Trip one/Beach.jpg" && echo x > "$T/Pics/notes.txt" && cp msx_cover.jpg "$T/Pics/.hidden.jpg"
+mkdir -p "$T/Songs/Album one" && head -c 300000 /dev/urandom > "$T/Songs/Album one/Song.mp3" && cp msx_cover.jpg "$T/Songs/Album one/cover.jpg" && echo x > "$T/Songs/Album one/notes.txt"
+sed -i "s|^music = .*|music = $PWD/$T/Songs|" $T/cfg/picoamp.ini
 if grep -q '^pictures = ' $T/cfg/picoamp.ini; then sed -i "s|^pictures = .*|pictures = $PWD/$T/Pics|" $T/cfg/picoamp.ini; else printf '[pictures]\npictures = %s\n' "$PWD/$T/Pics" >> $T/cfg/picoamp.ini; fi
 PICOAMP_WEBAPP=http://127.0.0.1:18960/ PICOAMP_CONFIG=$T/cfg timeout 30 $BIN "msxlink on; wait 9000; msxlink off" > /dev/null 2>&1 &
 APP=$!
@@ -369,7 +371,13 @@ br=$(curl -s "http://127.0.0.1:$LP/sonos/rooms"; echo; curl -s "http://127.0.0.1
      curl -si -X OPTIONS "http://127.0.0.1:$LP/sonos/rooms" | tr -d '\r'; curl -s "http://127.0.0.1:$LP/web/"; curl -si "http://127.0.0.1:$LP/web/picoamp.wasm" | tr -d '\r' | grep -a -i '^content-type' || true;
      echo "pics:"; curl -s "http://127.0.0.1:$LP/pics/list?path="; curl -s "http://127.0.0.1:$LP/pics/list?path=Trip%20one";
      echo "pic $(curl -s "http://127.0.0.1:$LP/pics/file?path=Trip%20one/Beach.jpg" | cmp - msx_cover.jpg >/dev/null && echo same)";
-     echo "up $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/pics/list?path=..")")
+     echo "up $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/pics/list?path=..")";
+     echo "music:"; curl -s "http://127.0.0.1:$LP/music/list?path=Album%20one"; echo "song $(curl -s "http://127.0.0.1:$LP/music/file?path=Album%20one/Song.mp3" | cmp - "$T/Songs/Album one/Song.mp3" >/dev/null && echo same)";
+     curl -si -H 'Range: bytes=1000-1999' "http://127.0.0.1:$LP/music/file?path=Album%20one/Song.mp3" | tr -d '\r' | grep -a -i '^HTTP\|^content-range\|^content-length';
+     tail -c +1001 "$T/Songs/Album one/Song.mp3" | head -c 1000 > $T/part.bin;
+     echo "part $(curl -s -H 'Range: bytes=1000-1999' "http://127.0.0.1:$LP/music/file?path=Album%20one/Song.mp3" | cmp - $T/part.bin >/dev/null && echo same)";
+     echo "end $(curl -s -H 'Range: bytes=-128' "http://127.0.0.1:$LP/music/file?path=Album%20one/Song.mp3" | wc -c)";
+     echo "mup $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/music/file?path=../x.mp3")")
 wait $APP || true
 kill $WEBAPP 2>/dev/null || true
 check "sonos bridge: the rooms" "$br" '"rooms":\[{"id":"RINCON_B","name":"Kitchen + 1","members":2},{"id":"RINCON_A","name":"Living Room","members":1}\]'
@@ -383,6 +391,12 @@ check "the web app: wasm as wasm" "$br" "^Content-Type: application/wasm"
 check "pictures bridge: the folder (folders, pictures; no others)" "$(printf '%s\n' "$br" | sed -n '/^pics:/,/^pic /p' | tr '\n' '|')" "^pics:\|d Trip one\|d Trip one\|f Beach.jpg\|pic |^pics:\|d Trip one\|f Beach.jpg\|pic "
 check "pictures bridge: a picture" "$br" "^pic same"
 check "pictures bridge: nothing above the folder" "$br" "^up 403"
+check "music bridge: the folder (music and its cover; no others)" "$(printf '%s\n' "$br" | sed -n '/^music:/,/^song /p' | tr '\n' '|')" "^music:\|f Song.mp3\|f cover.jpg\|song |^music:\|f cover.jpg\|f Song.mp3\|song "
+check "music bridge: a song whole" "$br" "^song same"
+check "music bridge: a part (Range: 206)" "$(printf '%s\n' "$br" | grep -i '^HTTP/1.0 206\|^content-range: bytes 1000-1999/300000\|^content-length: 1000' | wc -l)" "^3$"
+check "music bridge: the part's bytes" "$br" "^part same"
+check "music bridge: the last bytes (bytes=-128)" "$br" "^end 128"
+check "music bridge: nothing above the folder" "$br" "^mup 403"
 kill $SON 2>/dev/null || true
 unset PICOAMP_SSDP
 
