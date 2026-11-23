@@ -4,11 +4,18 @@
 //   /api/search?track_name=&artist_name=                      else: the best of what it finds
 //                                                             (synced first, the length closest)
 // The answer's "syncedLyrics" is LRC: "[mm:ss.xx] words" lines.
+// In the browser (__wasm__) there are no threads: the two questions one after the other, each
+// answer in a callback; LRCLIB straight, else through the relay ("cors:", web/picoamp.js). What
+// was found is kept in memory there (the page's storage is small), in <config>/Lyrics here.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "lyrics.h"
+#ifdef __wasm__
+#include "web.h"
+#else
 #include "net.h"
+#endif
 #include "radiodir.h"
 #include "sys.h"
 #include "util.h"
@@ -49,6 +56,8 @@ static uint32_t fnv(const char *s)
     return h;
 }
 
+// ---------------- what was found, kept (a "none" only for a week) ----------------
+#ifndef __wasm__
 static void cache_path(char *out, size_t n, const char *key)
 {
     char d[1024], f[32];
@@ -57,6 +66,57 @@ static void cache_path(char *out, size_t n, const char *key)
     snprintf(f, sizeof f, "%08X.lrc", (unsigned)fnv(key));
     u_join(out, n, d, f);
 }
+
+static char *kept_get(const char *key)
+{
+    char path[1200];
+    cache_path(path, sizeof path, key);
+    char *t = sys_read_file(path, NULL);
+    if (t && !strncmp(t, "none", 4) && sys_unix_time() - sys_file_time(path) > NONE_DAYS * 86400) { free(t); t = NULL; }
+    return t;
+}
+
+static void kept_put(const char *key, const char *t)
+{
+    char path[1200];
+    cache_path(path, sizeof path, key);
+    sys_write_file(path, t, strlen(t));
+}
+
+static void kept_forget(const char *key)
+{
+    char path[1200];
+    cache_path(path, sizeof path, key);
+    sys_delete(path);
+}
+#else
+// the last KEPT_N songs, in memory (the oldest goes)
+#define KEPT_N 64
+static struct { uint32_t h; char *t; } kept[KEPT_N];
+static int kept_next;
+
+static char *kept_get(const char *key)
+{
+    uint32_t h = fnv(key);
+    for (int i = 0; i < KEPT_N; i++) if (kept[i].t && kept[i].h == h) return strdup(kept[i].t);
+    return NULL;
+}
+
+static void kept_forget(const char *key)
+{
+    uint32_t h = fnv(key);
+    for (int i = 0; i < KEPT_N; i++) if (kept[i].t && kept[i].h == h) { free(kept[i].t); kept[i].t = NULL; }
+}
+
+static void kept_put(const char *key, const char *t)
+{
+    kept_forget(key);
+    free(kept[kept_next].t);
+    kept[kept_next].h = fnv(key);
+    kept[kept_next].t = strdup(t);
+    kept_next = (kept_next + 1) % KEPT_N;
+}
+#endif
 
 // ---------------- LRC and plain text into lines ----------------
 static void add(ly_set *s, int ms, const char *t, size_t len)
@@ -302,11 +362,63 @@ static char *best_of(const char *r, int seconds)
 }
 
 // ---------------- the lookup ----------------
-static char *ask(const char *path, bool *answered, char *err, size_t errlen)
+static void lookup_url(char *u, size_t n, const char *path)
 {
     const char *base = getenv("PICOAMP_LRCLIB");
-    char u[3000];
-    snprintf(u, sizeof u, "%s%s", base && *base ? base : "https://lrclib.net", path);
+    snprintf(u, n, "%s%s", base && *base ? base : "https://lrclib.net", path);
+}
+
+// the questions: 1 the one song (by its artist, title, album and length: LRCLIB's own match),
+// 2 a search (the best of what it finds); 0 none (left)
+static int question(const job_t *j, int after, char *q, size_t qn)
+{
+    char a[800], t[800], al[800];
+    rd_urlenc(a, sizeof a, j->artist);
+    rd_urlenc(t, sizeof t, j->title);
+    rd_urlenc(al, sizeof al, j->album);
+    if (after < 1 && j->seconds > 0 && j->artist[0])
+    {
+        snprintf(q, qn, "/api/get?artist_name=%s&track_name=%s&album_name=%s&duration=%d", a, t, al, j->seconds);
+        return 1;
+    }
+    if (after < 2)
+    {
+        if (j->artist[0]) snprintf(q, qn, "/api/search?track_name=%s&artist_name=%s", t, a);
+        else snprintf(q, qn, "/api/search?q=%s", t);
+        return 2;
+    }
+    return 0;
+}
+
+// the answer: kept (or that nothing was found), and for the screen when it is still the song asked for
+static void finish(job_t *j, char *found, bool answered, const char *err)
+{
+    ly_set s;
+    memset(&s, 0, sizeof s);
+    if (found || answered)
+    {
+        const char *k = found ? found : "none";
+        kept_put(j->key, k);
+        from_kept(&s, k);
+    }
+    else
+    {
+        s.state = LY_FAILED;
+        snprintf(s.error, sizeof s.error, "No lyrics: %s", err && err[0] ? err : "LRCLIB did not answer");
+    }
+    free(found);
+    sys_lock(lock);
+    if (j->gen == want_gen) { set_free(&came); came = s; came_have = true; memset(&s, 0, sizeof s); }
+    sys_unlock(lock);
+    set_free(&s);
+    free(j);
+}
+
+#ifndef __wasm__
+static char *ask(const char *path, bool *answered, char *err, size_t errlen)
+{
+    char u[3200];
+    lookup_url(u, sizeof u, path);
     int st = 0;
     // (LRCLIB asks for a User-Agent that names the program)
     net_conn *c = net_get(u, "User-Agent: PicoAmp/" PICOAMP_VERSION " (https://github.com/Jzzy-dev/win-picoamp)", &st, err, errlen, NULL);
@@ -337,50 +449,67 @@ static char *ask(const char *path, bool *answered, char *err, size_t errlen)
 static int run(void *arg)
 {
     job_t *j = arg;
-    char a[800], t[800], al[800], q[3000], err[120] = "";
+    char q[3000], err[120] = "";
     bool answered = false;
-    char *kept = NULL;
-    rd_urlenc(a, sizeof a, j->artist);
-    rd_urlenc(t, sizeof t, j->title);
-    rd_urlenc(al, sizeof al, j->album);
-    if (j->seconds > 0 && j->artist[0])
+    char *found = NULL;
+    for (int k = 0; !found && (k = question(j, k, q, sizeof q)) && j->gen == want_gen; )
     {
-        // the one song: by its artist, title, album and length (LRCLIB's own match)
-        snprintf(q, sizeof q, "/api/get?artist_name=%s&track_name=%s&album_name=%s&duration=%d", a, t, al, j->seconds);
         char *r = ask(q, &answered, err, sizeof err);
-        if (r) { kept = best_of(r, j->seconds); free(r); }
+        if (r) { found = best_of(r, j->seconds); free(r); }
     }
-    if (!kept && j->gen == want_gen)
-    {
-        if (j->artist[0]) snprintf(q, sizeof q, "/api/search?track_name=%s&artist_name=%s", t, a);
-        else snprintf(q, sizeof q, "/api/search?q=%s", t);
-        char *r = ask(q, &answered, err, sizeof err);
-        if (r) { kept = best_of(r, j->seconds); free(r); }
-    }
-    ly_set s;
-    memset(&s, 0, sizeof s);
-    if (kept || answered)
-    {
-        // what was found (or that nothing was): kept for the next time
-        char path[1200];
-        cache_path(path, sizeof path, j->key);
-        const char *k = kept ? kept : "none";
-        sys_write_file(path, k, strlen(k));
-        from_kept(&s, k);
-    }
-    else
-    {
-        s.state = LY_FAILED;
-        snprintf(s.error, sizeof s.error, "No lyrics: %s", err[0] ? err : "LRCLIB did not answer");
-    }
-    free(kept);
-    sys_lock(lock);
-    if (j->gen == want_gen) { set_free(&came); came = s; came_have = true; memset(&s, 0, sizeof s); }
-    sys_unlock(lock);
-    set_free(&s);
-    free(j);
+    finish(j, found, answered, err);
     return 0;
 }
+
+static bool start(job_t *j)
+{
+    sys_thread *th = sys_thread_start(run, j);
+    if (th) sys_thread_detach(th);
+    return th != NULL;
+}
+#else
+// one question, its answer in the callback; then the next or the end
+typedef struct { job_t *j; int k; bool answered; } web_ask;
+static void web_next(web_ask *w);
+
+static void web_got(void *user, int status, const char *data, size_t len, const char *e)
+{
+    web_ask *w = user;
+    char *found = NULL;
+    if (status >= 400 && status < 500) w->answered = true;           // (404: LRCLIB has nothing)
+    else if (status == 200 && data)
+    {
+        w->answered = true;
+        char *b = malloc(len + 1);
+        if (b) { memcpy(b, data, len); b[len] = 0; found = best_of(b, w->j->seconds); free(b); }
+    }
+    char err[120] = "";
+    if (!status) u_copy(err, sizeof err, e && *e ? e : "no answer");
+    else if (status != 200 && status != 404) snprintf(err, sizeof err, "HTTP %d", status);
+    if (found || w->j->gen != want_gen) { finish(w->j, found, w->answered, err); free(w); return; }
+    if (!w->answered && !status) { finish(w->j, NULL, false, err); free(w); return; }   // (not reached: the second would not be either)
+    web_next(w);
+}
+
+static void web_next(web_ask *w)
+{
+    char q[3000], u[3300];
+    if (!(w->k = question(w->j, w->k, q, sizeof q))) { finish(w->j, NULL, w->answered, ""); free(w); return; }
+    char url[3200];
+    lookup_url(url, sizeof url, q);
+    snprintf(u, sizeof u, "cors:%s", url);
+    net_fetch(u, web_got, w);
+}
+
+static bool start(job_t *j)
+{
+    web_ask *w = calloc(1, sizeof *w);
+    if (!w) return false;
+    w->j = j;
+    web_next(w);
+    return true;
+}
+#endif
 
 void lyrics_want(const char *artist, const char *title, const char *album, int seconds)
 {
@@ -399,14 +528,12 @@ void lyrics_want(const char *artist, const char *title, const char *album, int s
     set_free(&cur);
     if (!title[0]) { cur.state = LY_NONE; return; }
     // kept already (a "none" only for a week)
-    char path[1200];
-    cache_path(path, sizeof path, key);
-    char *t = sys_read_file(path, NULL);
+    char *t = kept_get(key);
     if (t)
     {
-        bool none = !strncmp(t, "none", 4);
-        if (!(none && sys_unix_time() - sys_file_time(path) > NONE_DAYS * 86400) && from_kept(&cur, t)) { free(t); return; }
+        bool ok = from_kept(&cur, t);
         free(t);
+        if (ok) return;
     }
     cur.state = LY_LOADING;
     job_t *j = calloc(1, sizeof *j);
@@ -417,17 +544,13 @@ void lyrics_want(const char *artist, const char *title, const char *album, int s
     u_copy(j->album, sizeof j->album, album);
     j->seconds = seconds;
     u_copy(j->key, sizeof j->key, key);
-    sys_thread *th = sys_thread_start(run, j);
-    if (th) sys_thread_detach(th);
-    else { free(j); cur.state = LY_FAILED; u_copy(cur.error, sizeof cur.error, "No lyrics: no thread"); }
+    if (!start(j)) { free(j); cur.state = LY_FAILED; u_copy(cur.error, sizeof cur.error, "No lyrics: no thread"); }
 }
 
 void lyrics_again(void)
 {
     if (!want_key[0]) return;
-    char path[1200];
-    cache_path(path, sizeof path, want_key);
-    sys_delete(path);
+    kept_forget(want_key);
     want_key[0] = 0;                // (asked again by the next lyrics_want)
 }
 
