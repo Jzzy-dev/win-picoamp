@@ -68,6 +68,14 @@ static wchar_t *wide(const char *s)
     return w;
 }
 
+bool plat_open_url(const char *url)
+{
+    wchar_t *w = wide(url);
+    HINSTANCE r = ShellExecuteW(NULL, L"open", w, NULL, NULL, SW_SHOWNORMAL);
+    free(w);
+    return (INT_PTR)r > 32;
+}
+
 void plat_open_folder(const char *path)
 {
     wchar_t *w = wide(path);

@@ -642,6 +642,188 @@ static void query(const char *path, const char *key, char *out, size_t n)
     }
 }
 
+// ---------------------------------------------------------------- PicoSing (karaoke on the MSX)
+// PicoSing on the MSX sings with what this PC plays: it asks for the song
+// here, follows the player's time on /screen and sends pause/seek/volume
+// on /cmd as PicoAmp on the MSX does.
+//   /sing/open?yt=<YouTube id>     opens the video in the browser and follows it
+//   /sing/open?q=<artist title>    a Spotify search (the app, else the web player)
+// And when its WiFi cannot reach USDB (usdb.animux.de: the songs' notes and
+// words), this PC fetches the pages for it, logged in with the MSX's name
+// and password, or with [usdb] user/pass here; the cookies stay here:
+//   /usdb/login?u=&p=   "ok", "bad" (wrong name or password), or why not
+//   /usdb/list?interpret=&title=&start=&limit=   the search's page
+//   /usdb/txt?id=       the page with the song's .txt (in its <textarea>)
+//   /usdb/cover?id=     its cover (JPEG)
+#define USDB_SITE "https://usdb.animux.de/"
+static char usdb_jar[1024], usdb_u[128], usdb_p[128];
+static sys_mutex *usdb_lock;
+
+static bool ok_id(const char *id)
+{
+    if (strlen(id) != 11) return false;
+    for (const char *p = id; *p; p++)
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) return false;
+    return true;
+}
+
+static void sing_open(sock_t s, const char *path)
+{
+    char yt[32], q[300], url[600];
+    query(path, "yt", yt, sizeof yt);
+    query(path, "q", q, sizeof q);
+    bool ok = false;
+    if (yt[0])
+    {
+        if (!ok_id(yt)) { send_text(s, "400 Bad Request", "text/plain", "not a video id\n", 15, NULL); return; }
+        snprintf(url, sizeof url, "https://www.youtube.com/watch?v=%s", yt);
+        ok = plat_open_url(url);
+    }
+    else if (q[0])
+    {
+        // only what a search needs: letters, digits, %xx, + (no other schemes, no paths)
+        for (char *p = q; *p; p++)
+            if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '%' || *p == '+' || *p == '-' || *p == '.' || *p == '_'))
+                *p = '+';
+        for (char *p = q; *p; p++) if (*p == '+') *p = ' ';
+        char e[600] = "";
+        for (char *p = q; *p; p++) { if (*p == ' ') strcat(e, "%20"); else strncat(e, p, 1); if (strlen(e) > 560) break; }
+        snprintf(url, sizeof url, "spotify:search:%s", e);
+        ok = plat_open_url(url);
+        if (!ok) { snprintf(url, sizeof url, "https://open.spotify.com/search/%s", e); ok = plat_open_url(url); }
+    }
+    else { send_text(s, "400 Bad Request", "text/plain", "yt= or q=\n", 10, NULL); return; }
+    if (!ok) { send_text(s, "502 Bad Gateway", "text/plain", "could not open it\n", 18, NULL); return; }
+    audio_follow_system();
+    send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
+}
+
+// a USDB page, with the jar's cookies (NULL: no answer); *len its size
+static char *usdb_page(const char *method, const char *rel, const char *form, size_t *len, int *status)
+{
+    const char *site = getenv("PICOAMP_USDB");
+    char url[600], e[200];
+    snprintf(url, sizeof url, "%s%s", site && *site ? site : USDB_SITE, rel);
+    sys_lock(usdb_lock);
+    char jar[sizeof usdb_jar];
+    u_copy(jar, sizeof jar, usdb_jar);
+    sys_unlock(usdb_lock);
+    net_conn *c = net_request(method, url, NULL, form, form ? strlen(form) : 0, jar, sizeof jar, status, e, sizeof e, NULL);
+    sys_lock(usdb_lock);
+    u_copy(usdb_jar, sizeof usdb_jar, jar);
+    sys_unlock(usdb_lock);
+    if (!c) return NULL;
+    size_t cap = 65536, n = 0;
+    char *b = malloc(cap + 1);
+    for (;;)
+    {
+        if (n == cap) { if (cap >= (4u << 20)) break; cap *= 2; b = realloc(b, cap + 1); }
+        long r = net_read(c, b + n, cap - n);
+        if (r <= 0) break;
+        n += (size_t)r;
+    }
+    net_close(c);
+    b[n] = 0;
+    *len = n;
+    return b;
+}
+
+// log in (the MSX's name, else this PC's): 1 in, 0 wrong name or password, -1 no answer
+static int usdb_login(void)
+{
+    char u[128], p[128], form[400];
+    sys_lock(usdb_lock);
+    u_copy(u, sizeof u, usdb_u[0] ? usdb_u : cfg.usdb_user);
+    u_copy(p, sizeof p, usdb_u[0] ? usdb_p : cfg.usdb_pass);
+    sys_unlock(usdb_lock);
+    if (!u[0]) return 0;
+    // (the MSX sends them escaped; the PC's own are escaped here)
+    char ue[400], pe[400];
+    if (usdb_u[0]) { u_copy(ue, sizeof ue, u); u_copy(pe, sizeof pe, p); }
+    else
+    {
+        static const char hex[] = "0123456789ABCDEF";
+        char *src[2] = { u, p }, *dst[2] = { ue, pe };
+        for (int k = 0; k < 2; k++)
+        {
+            size_t o = 0;
+            for (unsigned char *q = (unsigned char *)src[k]; *q && o + 4 < sizeof ue; q++)
+            {
+                if ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z') || (*q >= '0' && *q <= '9') || *q == '-' || *q == '_' || *q == '.') dst[k][o++] = (char)*q;
+                else { dst[k][o++] = '%'; dst[k][o++] = hex[*q >> 4]; dst[k][o++] = hex[*q & 15]; }
+            }
+            dst[k][o] = 0;
+        }
+    }
+    snprintf(form, sizeof form, "user=%s&pass=%s&login=Login", ue, pe);
+    size_t n;
+    int st;
+    char *b = usdb_page("POST", "index.php?link=login", form, &n, &st);
+    if (!b) return -1;
+    int r = strstr(b, "Password invalid") ? 0 : 1;
+    free(b);
+    return r;
+}
+
+static void usdb_bridge(sock_t s, const char *what, const char *path)
+{
+    if (!usdb_lock) usdb_lock = sys_mutex_new();
+    if (!strcmp(what, "login"))
+    {
+        char u[128], p[128];
+        query(path, "u", u, sizeof u);
+        query(path, "p", p, sizeof p);
+        sys_lock(usdb_lock);
+        u_copy(usdb_u, sizeof usdb_u, u);
+        u_copy(usdb_p, sizeof usdb_p, p);
+        usdb_jar[0] = 0;
+        sys_unlock(usdb_lock);
+        int r = usdb_login();
+        const char *t = r > 0 ? "ok\n" : r == 0 ? "bad\n" : "no answer from usdb.animux.de\n";
+        send_text(s, "200 OK", "text/plain", t, strlen(t), NULL);
+        return;
+    }
+    char rel[300], form[900] = "", v[300], id[16];
+    const char *method = "POST";
+    query(path, "id", id, sizeof id);
+    for (char *p = id; *p; p++) if (*p < '0' || *p > '9') *p = 0;
+    if (!strcmp(what, "list"))
+    {
+        // the MSX's query (escaped already) as USDB's search form
+        static const char *keys[] = { "interpret", "title", "edition", "language", "genre", "start", "limit" };
+        u_copy(rel, sizeof rel, "index.php?link=list");
+        snprintf(form, sizeof form, "order=rating&ud=desc&details=1");
+        for (int i = 0; i < 7; i++)
+        {
+            query(path, keys[i], v, sizeof v);
+            size_t l = strlen(form);
+            snprintf(form + l, sizeof form - l, "&%s=%s", keys[i], v);
+        }
+    }
+    else if (!strcmp(what, "txt") && id[0]) { snprintf(rel, sizeof rel, "index.php?link=gettxt&id=%s", id); u_copy(form, sizeof form, "wd=1"); }
+    else if (!strcmp(what, "cover") && id[0]) { snprintf(rel, sizeof rel, "data/cover/%s.jpg", id); method = "GET"; }
+    else { send_text(s, "404 Not Found", "text/plain", "login list txt cover\n", 21, NULL); return; }
+    size_t n = 0;
+    int st = 0;
+    char *b = NULL;
+    for (int round = 0; round < 2; round++)
+    {
+        b = usdb_page(method, rel, method[0] == 'P' ? form : NULL, &n, &st);
+        // a session that ran out: in again, once
+        if (b && strstr(b, "You are not logged in") && round == 0 && usdb_login() > 0) { free(b); b = NULL; continue; }
+        break;
+    }
+    if (!b)
+    {
+        char m[80];
+        int k = snprintf(m, sizeof m, "usdb.animux.de: %d\n", st);
+        send_text(s, st == 404 ? "404 Not Found" : "502 Bad Gateway", "text/plain", m, (size_t)k, NULL);
+        return;
+    }
+    send_text(s, "200 OK", what[0] == 'c' ? "image/jpeg" : "text/html", b, n, NULL);
+    free(b);
+}
+
 // ---------------------------------------------------------------- the Sonos bridge
 // PicoAmp for the web (a page cannot reach the speakers itself) asks here:
 //   /sonos/rooms[?fresh=1]          {"state":"done","error":"","rooms":[{"id","name","members"}]}
@@ -1024,6 +1206,8 @@ static int client_main(void *arg)
         send_text(s, "204 No Content", "text/plain", "", 0,
                   "Access-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Max-Age: 600\r\n");
     else if (!strncmp(p0, "/sonos/", 7)) sonos_bridge(s, p0 + 7, path);
+    else if (!strcmp(p0, "/sing/open")) sing_open(s, path);
+    else if (!strncmp(p0, "/usdb/", 6)) usdb_bridge(s, p0 + 6, path);
     else if (!strncmp(p0, "/pics/", 6)) pics_bridge(s, p0 + 6, path, NULL, false);
     else if (!strncmp(p0, "/music/", 7))
     {

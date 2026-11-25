@@ -17,6 +17,8 @@
 #include "picture.h"
 
 void plat_open_folder(const char *path) { printf("open folder: %s\n", path); }
+// (the test build: says what it would open; "spotify:" is not there, as on a PC without the app)
+bool plat_open_url(const char *url) { printf("open url: %s\n", url); fflush(stdout); return strncmp(url, "spotify:", 8) != 0; }
 void plat_quit(void) {}
 void plat_minimize(void) { printf("minimize\n"); }
 

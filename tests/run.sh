@@ -293,6 +293,28 @@ check "msx link: the cover, 80 x 80" "$msx" "cover size: 80x80"
 check "msx link: the full screen's cover, fits 281 x 192" "$msx" "big cover: 200 [0-9]* bytes, 192x192"
 check "msx link: shuffle on the MSX: shuffle here" "$msx" '"shuffle":true'
 check "msx link: the station list" "$msx" "m3u: 200 #EXTM3U .*:18777/stream.mp3"
+# PicoSing on the MSX: the song opened here (a YouTube video, a Spotify search), and USDB through this PC
+python3 tests/usdb_fake.py 18790 > $T/usdb.log 2>&1 &
+USDB=$!
+export PICOAMP_USDB=http://127.0.0.1:18790/
+python3 tests/sing_client.py 18777 > $T/sing.log 2>&1 &
+CLI=$!
+export PICOAMP_FAKE_MEDIA="Chrome|Never Gonna|Rick|Album|200"
+out=$(run "msxlink on; wait 6000; status")
+unset PICOAMP_FAKE_MEDIA PICOAMP_USDB
+wait $CLI
+kill $USDB 2>/dev/null || true
+sing=$(cat $T/sing.log)
+check "picosing: the video opens" "$out" "open url: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+check "picosing: ... and is followed" "$sing" "/sing/open?yt=dQw4w9WgXcQ -> 200 b'ok"
+check "picosing: not a video id" "$sing" "/sing/open?yt=bad -> 400"
+check "picosing: a Spotify search, the web player without the app" "$out" "open url: https://open.spotify.com/search/ABBA%20Dancing%20Queen"
+check "picosing: usdb, not logged in" "$sing" "interpret=nobody -> 200 b'<html>You are not logged in"
+check "picosing: usdb, a wrong password" "$sing" "p=wrong -> 200 b'bad"
+check "picosing: usdb, logged in (a cookie after a redirect)" "$sing" "p=s3cret%26x -> 200 b'ok"
+check "picosing: usdb, the search as USDB's form" "$sing" "interpret=ABBA&title=&start=0&limit=20 -> 200 b'<table><tr class=\"list_tr1\" data-songid=\"7\"[^']*<td>ABBA</td>"
+check "picosing: usdb, the song's text" "$sing" "/usdb/txt?id=7 -> 200 b'<textarea>#TITLE:Song Seven"
+check "picosing: usdb, the cover" "$sing" "/usdb/cover?id=7 -> 200 b'.xff.xd8"
 python3 tests/msx_client.py 18777 4 > $T/msx2.log 2>&1 &
 CLI=$!
 out=$(run "key Down; key Down; key Enter; wait 6000; msxlink off")

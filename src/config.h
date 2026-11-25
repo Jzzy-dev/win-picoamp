@@ -62,6 +62,8 @@ typedef struct
     // [sonos]
     char   sonos_ip[256];    // speakers to ask besides the ones that answer the search (addresses, a comma between them)
     bool   sonos_bars;       // bars that move while a Sonos room plays (its sound does not come here)
+    // [usdb] (PicoSing on the MSX: this PC logs in to usdb.animux.de for it when its WiFi cannot)
+    char   usdb_user[128], usdb_pass[128];
 } config;
 
 extern config cfg;

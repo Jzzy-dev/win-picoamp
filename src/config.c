@@ -130,6 +130,8 @@ void config_load(void)
         else if (!u_stricmp(k, "msx_kbps")) cfg.msx_kbps = atoi(v);
         else if (!u_stricmp(k, "sonos_ip")) u_copy(cfg.sonos_ip, sizeof cfg.sonos_ip, v);
         else if (!u_stricmp(k, "sonos_bars")) cfg.sonos_bars = yes(v);
+        else if (!u_stricmp(k, "usdb_user")) u_copy(cfg.usdb_user, sizeof cfg.usdb_user, v);
+        else if (!u_stricmp(k, "usdb_pass")) u_copy(cfg.usdb_pass, sizeof cfg.usdb_pass, v);
     }
     free(text);
     if (cfg.msx_port < 1 || cfg.msx_port > 65535) cfg.msx_port = 8765;
@@ -222,7 +224,11 @@ void config_save(void)
             "[sonos]\r\n"
             "; sonos_ip: speakers to ask when the search finds none (e.g. 192.168.1.30, a comma between them);\r\n"
             "; sonos_bars: the bars move while a Sonos room plays (its sound itself does not come to this PC)\r\n"
-            "sonos_ip = %s\r\nsonos_bars = %s\r\n",
-            cfg.sonos_ip, cfg.sonos_bars ? "on" : "off");
+            "sonos_ip = %s\r\nsonos_bars = %s\r\n"
+            "\r\n[usdb]\r\n"
+            "; PicoSing on the MSX finds songs on usdb.animux.de; when its WiFi cannot reach it, this PC\r\n"
+            "; fetches them for it, with the MSX's account, or with this one when the MSX has none\r\n"
+            "usdb_user = %s\r\nusdb_pass = %s\r\n",
+            cfg.sonos_ip, cfg.sonos_bars ? "on" : "off", cfg.usdb_user, cfg.usdb_pass);
     if (n > 0 && (size_t)n < sizeof buf) sys_write_file(ini_path(), buf, (size_t)n);
 }

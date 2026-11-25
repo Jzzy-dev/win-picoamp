@@ -1,4 +1,4 @@
-// net.c - HTTP(S) GET (see net.h)
+// net.c - HTTP(S) GET and POST (see net.h)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -169,18 +169,21 @@ static long sock_recv(net_conn *c, void *buf, size_t n)
     }
 }
 
-static int http_open(net_conn *c, const url_t *u, const char *extra, char *err, size_t errlen, char *location, size_t loclen)
+static int http_open(net_conn *c, const url_t *u, const char *method, const char *extra, const char *body, size_t body_len,
+                     char *err, size_t errlen, char *location, size_t loclen)
 {
     c->s = connect_to(u->host, u->port, err, errlen, c->abort);
     if (c->s == BAD_SOCK) return 0;
-    char req[4096], hostport[300];
+    char req[4096], hostport[300], form[96] = "";
     if (u->port == 80) snprintf(hostport, sizeof hostport, "%s", u->host);
     else snprintf(hostport, sizeof hostport, "%s:%d", u->host, u->port);
     bool own_ua = extra && !u_strnicmp(extra, "User-Agent:", 11);
+    if (body) snprintf(form, sizeof form, "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %zu\r\n", body_len);
     int n = snprintf(req, sizeof req,
-                     "GET %s HTTP/1.0\r\nHost: %s\r\n%sAccept: */*\r\n%s%sConnection: close\r\n\r\n",
-                     u->path, hostport, own_ua ? "" : "User-Agent: " USER_AGENT "\r\n", extra ? extra : "", extra && *extra ? "\r\n" : "");
-    if (send(c->s, req, n, 0) != n) { snprintf(err, errlen, "Could not send the request"); return 0; }
+                     "%s %s HTTP/1.0\r\nHost: %s\r\n%sAccept: */*\r\n%s%s%sConnection: close\r\n\r\n",
+                     method, u->path, hostport, own_ua ? "" : "User-Agent: " USER_AGENT "\r\n", extra ? extra : "", extra && *extra ? "\r\n" : "", form);
+    if (n < 0 || n >= (int)sizeof req || send(c->s, req, n, 0) != n || (body_len && send(c->s, body, (int)body_len, 0) != (long)body_len))
+    { snprintf(err, errlen, "Could not send the request"); return 0; }
     // the head, up to the empty line
     char *h = malloc(MAX_HEAD + 1);
     size_t hl = 0;
@@ -239,26 +242,38 @@ static wchar_t *wdup(const char *s)
     return w;
 }
 
-static int winhttp_open(net_conn *c, const url_t *u, const char *extra, char *err, size_t errlen)
+static int winhttp_open(net_conn *c, const url_t *u, const char *method, const char *extra, const char *body, size_t body_len,
+                        bool own_redirects, char *err, size_t errlen)
 {
     c->ses = WinHttpOpen(L"" USER_AGENT, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!c->ses) c->ses = WinHttpOpen(L"" USER_AGENT, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!c->ses) { snprintf(err, errlen, "WinHTTP not available"); return 0; }
     WinHttpSetTimeouts(c->ses, 10000, 10000, 10000, 15000);
-    wchar_t *wh = wdup(u->host), *wp = wdup(u->path);
+    wchar_t *wh = wdup(u->host), *wp = wdup(u->path), *wm = wdup(method);
     c->con = WinHttpConnect(c->ses, wh, (INTERNET_PORT)u->port, 0);
-    c->req = c->con ? WinHttpOpenRequest(c->con, L"GET", wp, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+    c->req = c->con ? WinHttpOpenRequest(c->con, wm, wp, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                          u->tls ? WINHTTP_FLAG_SECURE : 0) : NULL;
     free(wh);
     free(wp);
+    free(wm);
     if (!c->req) { snprintf(err, errlen, "No connection to %s", u->host); return 0; }
+    if (own_redirects)
+    {
+        // the redirects and cookies are ours (net_request's jar): WinHTTP keeps out of them
+        DWORD pol = WINHTTP_OPTION_REDIRECT_POLICY_NEVER, feat = WINHTTP_DISABLE_COOKIES;
+        WinHttpSetOption(c->req, WINHTTP_OPTION_REDIRECT_POLICY, &pol, sizeof pol);
+        WinHttpSetOption(c->req, WINHTTP_OPTION_DISABLE_FEATURE, &feat, sizeof feat);
+    }
     if (extra && *extra)
     {
         wchar_t *we = wdup(extra);
         WinHttpAddRequestHeaders(c->req, we, (DWORD)-1L, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
         free(we);
     }
-    if (!WinHttpSendRequest(c->req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+    if (body)
+        WinHttpAddRequestHeaders(c->req, L"Content-Type: application/x-www-form-urlencoded", (DWORD)-1L, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+    if (!WinHttpSendRequest(c->req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, body ? (LPVOID)body : WINHTTP_NO_REQUEST_DATA,
+                            (DWORD)body_len, (DWORD)body_len, 0) ||
         !WinHttpReceiveResponse(c->req, NULL))
     {
         DWORD e = GetLastError();
@@ -319,9 +334,70 @@ static void conn_free_parts(net_conn *c)
     c->pend_len = c->pend_pos = 0;
 }
 
+// a Set-Cookie into the jar ("NAME=VALUE; Path=/" -> NAME=VALUE, replacing the old one)
+static void jar_add(char *jar, size_t size, const char *v)
+{
+    char nv[600];
+    size_t k = strcspn(v, ";");
+    if (!k || k >= sizeof nv) return;
+    memcpy(nv, v, k);
+    nv[k] = 0;
+    char *eq = strchr(nv, '=');
+    if (!eq) return;
+    size_t nl = (size_t)(eq - nv) + 1;
+    char *out = calloc(1, size + 1);
+    const char *p = jar;
+    while (*p)
+    {
+        const char *e = strstr(p, "; ");
+        size_t l = e ? (size_t)(e - p) : strlen(p);
+        if (!(l >= nl && !strncmp(p, nv, nl)) && strlen(out) + l + 3 < size)
+        {
+            if (out[0]) strcat(out, "; ");
+            strncat(out, p, l);
+        }
+        p += l;
+        if (*p) p += 2;
+    }
+    if (eq[1] && strcmp(eq + 1, "deleted") && strlen(out) + strlen(nv) + 3 < size)
+    {
+        if (out[0]) strcat(out, "; ");
+        strcat(out, nv);
+    }
+    snprintf(jar, size, "%s", out);
+    free(out);
+}
+
+static void jar_take(net_conn *c, char *jar, size_t size)
+{
+    if (!jar || !c->head) return;
+    for (char *p = c->head; *p; )
+    {
+        char *eol = strstr(p, "\r\n");
+        if (!eol) break;
+        if (!u_strnicmp(p, "Set-Cookie:", 11))
+        {
+            char v[700];
+            size_t l = (size_t)(eol - p - 11);
+            if (l >= sizeof v) l = sizeof v - 1;
+            memcpy(v, p + 11, l);
+            v[l] = 0;
+            jar_add(jar, size, u_trim(v));
+        }
+        p = eol + 2;
+    }
+}
+
 net_conn *net_get(const char *url, const char *extra, int *status, char *err, size_t errlen, volatile bool *abort)
 {
+    return net_request("GET", url, extra, NULL, 0, NULL, 0, status, err, errlen, abort);
+}
+
+net_conn *net_request(const char *method, const char *url, const char *extra_in, const char *body, size_t body_len,
+                      char *jar, size_t jar_size, int *status, char *err, size_t errlen, volatile bool *abort)
+{
     char cur[2048];
+    char *extra = NULL;
     snprintf(cur, sizeof cur, "%s", url);
     *status = 0;
     if (err && errlen) err[0] = 0;
@@ -336,13 +412,25 @@ net_conn *net_get(const char *url, const char *extra, int *status, char *err, si
         c->tls = u.tls;
         char loc[2048] = "";
         int st;
+        // the extra headers and the jar's cookies
+        free(extra);
+        size_t el = (extra_in ? strlen(extra_in) : 0) + (jar ? strlen(jar) : 0) + 16;
+        extra = calloc(1, el);
+        if (extra_in && *extra_in) strcat(extra, extra_in);
+        if (jar && *jar) { if (*extra) strcat(extra, "\r\n"); strcat(extra, "Cookie: "); strcat(extra, jar); }
 #ifdef _WIN32
-        if (u.tls) st = winhttp_open(c, &u, extra, err, errlen);
-        else st = http_open(c, &u, extra, err, errlen, loc, sizeof loc);
+        if (u.tls)
+        {
+            st = winhttp_open(c, &u, method, extra, body, body_len, jar != NULL, err, errlen);
+            const char *l = jar ? net_header(c, "Location") : NULL;
+            if (l) snprintf(loc, sizeof loc, "%s", l);
+        }
+        else st = http_open(c, &u, method, extra, body, body_len, err, errlen, loc, sizeof loc);
 #else
         if (u.tls) { snprintf(err, errlen, "HTTPS is not in this test build"); st = 0; }
-        else st = http_open(c, &u, extra, err, errlen, loc, sizeof loc);
+        else st = http_open(c, &u, method, extra, body, body_len, err, errlen, loc, sizeof loc);
 #endif
+        jar_take(c, jar, jar_size);
         if ((st == 301 || st == 302 || st == 303 || st == 307 || st == 308) && loc[0])
         {
             // a relative Location: the same server
@@ -359,14 +447,16 @@ net_conn *net_get(const char *url, const char *extra, int *status, char *err, si
             }
             conn_free_parts(c);
             u_copy(cur, sizeof cur, next);
+            if (st != 307 && st != 308) { method = "GET"; body = NULL; body_len = 0; }   // (a form posted once)
             continue;
         }
         *status = st;
-        if (st >= 200 && st < 300) return c;
+        if (st >= 200 && st < 300) { free(extra); return c; }
         if (st && err && errlen) snprintf(err, errlen, "The server answers %d", st);
         break;
     }
     if (!*status && err && !err[0]) snprintf(err, errlen, "Too many redirects");
+    free(extra);
     net_close(c);
     return NULL;
 }

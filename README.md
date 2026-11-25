@@ -42,6 +42,19 @@ PicoAmp can be the screen and remote of music it does not play itself, and pass 
   *PicoAmp for Windows*): `/music/list?path=` and `/music/file?path=`, the folders, songs and their
   cover pictures. A song is streamed (Range: the part asked, so the TV seeks).
 
+* **Karaoke on the MSX (PicoSing):** with the MSX link on, PicoSing (SingStar-style karaoke on
+  the MSX with a PicoVerse 2350) can use this PC's player for a song's music:
+  * `/sing/open?yt=<id>` opens the song's YouTube video in the browser and follows it.
+  * `/sing/open?q=<artist title>` opens a Spotify search: in the Spotify app, else in the web player.
+  * PicoSing then follows the player's time on `/screen`, and sends pause, seek and volume on `/cmd`.
+  * The MSX link opens only YouTube videos and Spotify searches, nothing else.
+* **USDB for the MSX:** when PicoSing's WiFi can't reach usdb.animux.de (the songs' notes and
+  words), this PC fetches the pages for it:
+  * The endpoints are `/usdb/login`, `/usdb/list`, `/usdb/txt` and `/usdb/cover`.
+  * It logs in with the name the MSX sends. If the MSX sends none, it uses `usdb_user` and
+    `usdb_pass` under `[usdb]` in `picoamp.ini`.
+  * The cookies stay on this PC.
+
 Details below, under What it does.
 
 ## What it does

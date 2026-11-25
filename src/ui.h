@@ -30,6 +30,7 @@ char *ui_describe(bool the_list);
 
 // from the platform
 void plat_open_folder(const char *path);
+bool plat_open_url(const char *url);        // in the browser, or the app it belongs to (false: nothing opened it)
 void plat_quit(void);
 void plat_minimize(void);                 // ESC with nothing to close: the music plays on
 
