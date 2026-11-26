@@ -16,6 +16,7 @@ typedef struct
     int    balance;          // 0 left .. 50 centre .. 100 right
     int    view;             // 0 spectrum, 1 scope
     char   music_dir[1024];  // the [Music] entry of the list
+    char   sing_dir[1024];   // PicoSing's songs on this PC ("": the music folder)
     char   start_path[2048]; // the list's folder when it was closed
     // the window
     int    win_x, win_y, win_w, win_h;   // client size; x = y = -1: let Windows choose

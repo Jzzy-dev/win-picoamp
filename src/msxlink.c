@@ -667,37 +667,6 @@ static bool ok_id(const char *id)
     return true;
 }
 
-static void sing_open(sock_t s, const char *path)
-{
-    char yt[32], q[300], url[600];
-    query(path, "yt", yt, sizeof yt);
-    query(path, "q", q, sizeof q);
-    bool ok = false;
-    if (yt[0])
-    {
-        if (!ok_id(yt)) { send_text(s, "400 Bad Request", "text/plain", "not a video id\n", 15, NULL); return; }
-        snprintf(url, sizeof url, "https://www.youtube.com/watch?v=%s", yt);
-        ok = plat_open_url(url);
-    }
-    else if (q[0])
-    {
-        // only what a search needs: letters, digits, %xx, + (no other schemes, no paths)
-        for (char *p = q; *p; p++)
-            if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '%' || *p == '+' || *p == '-' || *p == '.' || *p == '_'))
-                *p = '+';
-        for (char *p = q; *p; p++) if (*p == '+') *p = ' ';
-        char e[600] = "";
-        for (char *p = q; *p; p++) { if (*p == ' ') strcat(e, "%20"); else strncat(e, p, 1); if (strlen(e) > 560) break; }
-        snprintf(url, sizeof url, "spotify:search:%s", e);
-        ok = plat_open_url(url);
-        if (!ok) { snprintf(url, sizeof url, "https://open.spotify.com/search/%s", e); ok = plat_open_url(url); }
-    }
-    else { send_text(s, "400 Bad Request", "text/plain", "yt= or q=\n", 10, NULL); return; }
-    if (!ok) { send_text(s, "502 Bad Gateway", "text/plain", "could not open it\n", 18, NULL); return; }
-    audio_follow_system();
-    send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
-}
-
 // a USDB page, with the jar's cookies (NULL: no answer); *len its size
 static char *usdb_page(const char *method, const char *rel, const char *form, size_t *len, int *status)
 {
@@ -1035,12 +1004,9 @@ static void send_song(sock_t s, const char *full, const char *type, const char *
     fclose(f);
 }
 
-static void pics_bridge(sock_t s, const char *what, const char *path, const char *range, bool music)
+// a path under the folder: nothing above it, no drives
+static bool rel_ok(const char *rel)
 {
-    char rel[1024];
-    query(path, "path", rel, sizeof rel);
-    pct_decode(rel);
-    // nothing above the folder, no drives
     bool ok = !strchr(rel, ':') && !strchr(rel, '\\') && rel[0] != '/';
     for (const char *p = rel; ok && *p; )
     {
@@ -1049,7 +1015,23 @@ static void pics_bridge(sock_t s, const char *what, const char *path, const char
         if ((l == 2 && !strncmp(p, "..", 2)) || (l == 1 && p[0] == '.')) ok = false;
         p = e ? e + 1 : p + l;
     }
-    if (!ok) { send_text(s, "403 Forbidden", "text/plain", "not here\n", 9, NULL); return; }
+    return ok;
+}
+
+static void full_path(char *full, size_t n, const char *root, const char *rel)
+{
+    snprintf(full, n, "%s%s%s", root, rel[0] ? "/" : "", rel);
+#ifdef _WIN32
+    for (char *p = full; *p; p++) if (*p == '/') *p = '\\';
+#endif
+}
+
+static void pics_bridge(sock_t s, const char *what, const char *path, const char *range, bool music)
+{
+    char rel[1024];
+    query(path, "path", rel, sizeof rel);
+    pct_decode(rel);
+    if (!rel_ok(rel)) { send_text(s, "403 Forbidden", "text/plain", "not here\n", 9, NULL); return; }
     const char *root = music ? (cfg.music_dir[0] ? cfg.music_dir : sys_music_dir()) : cfg.pic_folder[0] ? cfg.pic_folder : sys_pictures_dir();
     char full[2048];
     snprintf(full, sizeof full, "%s%s%s", root, rel[0] ? "/" : "", rel);
@@ -1088,6 +1070,195 @@ static void pics_bridge(sock_t s, const char *what, const char *path, const char
         return;
     }
     send_text(s, "404 Not Found", "text/plain", "list or file\n", 13, NULL);
+}
+
+// PicoSing's songs on this PC (its PC folders): [usdb] karaoke in picoamp.ini, else the music folder
+//   /sing/list?path=a/b      the folder's folders and files: "d name", "f name"
+//   /sing/songs?path=a/b     its UltraStar songs, 4 folders deep: "<path of the .txt> TAB <artist> TAB <title> TAB <1: a duet>"
+//   /sing/file?path=a/b/c    a file (the .txt, a cover, the MP3; Range)
+//   /sing/open?file=a/b/c.mp3   plays the song here, in this player (PicoSing follows its time)
+static const char *sing_root(void) { return cfg.sing_dir[0] ? cfg.sing_dir : cfg.music_dir[0] ? cfg.music_dir : sys_music_dir(); }
+
+typedef struct { char *b; size_t len, cap; int n; } outbuf;
+static void ob_add(outbuf *o, const char *t, size_t n)
+{
+    if (o->len + n + 1 > o->cap)
+    {
+        size_t c = o->cap ? o->cap * 2 : 4096;
+        while (c < o->len + n + 1) c *= 2;
+        char *nb = realloc(o->b, c);
+        if (!nb) return;
+        o->b = nb;
+        o->cap = c;
+    }
+    memcpy(o->b + o->len, t, n);
+    o->len += n;
+    o->b[o->len] = 0;
+}
+
+// a header line's value ("#TITLE:..." -> "..."), its tabs and line end left out
+static void txt_tag(const char *txt, const char *tag, char *out, size_t n)
+{
+    out[0] = 0;
+    size_t tl = strlen(tag);
+    for (const char *l = txt; l && *l; )
+    {
+        if (l[0] == '#')
+        {
+            bool match = true;
+            for (size_t i = 0; i < tl && match; i++) match = (l[1 + i] & 0xDF) == (tag[i] & 0xDF);
+            if (match && l[1 + tl] == ':')
+            {
+                const char *v = l + 2 + tl;
+                size_t k = 0;
+                while (v[k] && v[k] != '\r' && v[k] != '\n' && k + 1 < n) { out[k] = v[k] == '\t' ? ' ' : v[k]; k++; }
+                out[k] = 0;
+                while (k && out[k - 1] == ' ') out[--k] = 0;
+                return;
+            }
+        }
+        else if (l[0] == ':' || l[0] == '*' || l[0] == 'F' || l[0] == 'P' || l[0] == '-') return;     // (the notes: the header is over)
+        l = strchr(l, '\n');
+        if (l) l++;
+    }
+}
+
+static void sing_scan(outbuf *o, const char *root, const char *rel, int depth)
+{
+    char full[2048];
+    full_path(full, sizeof full, root, rel);
+    sys_dirent *d = NULL;
+    int n = 0;
+    if (!sys_list_dir(full, &d, &n)) return;
+    for (int i = 0; i < n && o->n < 2000; i++)
+    {
+        const char *nm = d[i].name;
+        if (nm[0] == '.') continue;
+        char r[1024];
+        snprintf(r, sizeof r, "%s%s%s", rel, rel[0] ? "/" : "", nm);
+        if (d[i].is_dir)
+        {
+            if (depth < 4 && u_stricmp(nm, "PICOSING")) sing_scan(o, root, r, depth + 1);
+            continue;
+        }
+        size_t l = strlen(nm);
+        if (depth == 0 || l < 5 || u_stricmp(nm + l - 4, ".txt")) continue;
+        char f[2048];
+        full_path(f, sizeof f, root, r);
+        size_t tn = 0;
+        char *t = sys_read_file(f, &tn);
+        if (!t) continue;
+        if (tn > 8192) t[8192] = 0;
+        if (strstr(t, "#BPM") || strstr(t, "#bpm"))
+        {
+            char ar[160], ti[160], line[1400];
+            const char *body = strncmp(t, "\xEF\xBB\xBF", 3) ? t : t + 3;     // (a UTF-8 BOM)
+            txt_tag(body, "ARTIST", ar, sizeof ar);
+            txt_tag(body, "TITLE", ti, sizeof ti);
+            const char *a = ar, *b = ti;
+            bool duet = strstr(t, "\nP2") || strstr(t, "\nP 2") || strstr(t, "#P1:") || strstr(t, "#DUETSINGERP1");
+            int k = snprintf(line, sizeof line, "%s\t%s\t%s\t%d\n", r, a, b, duet ? 1 : 0);
+            if (k > 0 && (size_t)k < sizeof line) { ob_add(o, line, (size_t)k); o->n++; }
+        }
+        free(t);
+    }
+    sys_free_dir(d, n);
+}
+
+static const char *file_type(const char *name)
+{
+    const char *t = music_type(name);
+    if (!t) t = pic_type(name);
+    const char *e = strrchr(name, '.');
+    if (!t && e && !u_stricmp(e, ".txt")) t = "text/plain";
+    return t ? t : "application/octet-stream";
+}
+
+static void sing_files(sock_t s, const char *what, const char *path, const char *range)
+{
+    char rel[1024], full[2048];
+    query(path, "path", rel, sizeof rel);
+    pct_decode(rel);
+    if (!rel_ok(rel)) { send_text(s, "403 Forbidden", "text/plain", "not here\n", 9, NULL); return; }
+    const char *root = sing_root();
+    full_path(full, sizeof full, root, rel);
+    if (!strcmp(what, "list"))
+    {
+        sys_dirent *d = NULL;
+        int n = 0;
+        if (!sys_list_dir(full, &d, &n)) { send_text(s, "404 Not Found", "text/plain", "no such folder\n", 15, NULL); return; }
+        outbuf o = { 0 };
+        ob_add(&o, "", 0);
+        for (int i = 0; i < n; i++)
+        {
+            if (d[i].name[0] == '.') continue;
+            char line[600];
+            int k = snprintf(line, sizeof line, "%c %s\n", d[i].is_dir ? 'd' : 'f', d[i].name);
+            if (k > 0 && (size_t)k < sizeof line) ob_add(&o, line, (size_t)k);
+        }
+        sys_free_dir(d, n);
+        send_text(s, "200 OK", "text/plain; charset=utf-8", o.b ? o.b : "", o.len, NULL);
+        free(o.b);
+        return;
+    }
+    if (!strcmp(what, "songs"))
+    {
+        outbuf o = { 0 };
+        ob_add(&o, "", 0);
+        sing_scan(&o, root, rel, 0);
+        send_text(s, "200 OK", "text/plain; charset=utf-8", o.b ? o.b : "", o.len, NULL);
+        free(o.b);
+        return;
+    }
+    if (!strcmp(what, "file")) { send_song(s, full, file_type(full), range); return; }
+    send_text(s, "404 Not Found", "text/plain", "list, songs or file\n", 20, NULL);
+}
+
+static void sing_open(sock_t s, const char *path)
+{
+    char file[1024];
+    query(path, "file", file, sizeof file);
+    if (file[0])
+    {
+        // a song of PicoSing's PC folders: this player plays it
+        pct_decode(file);
+        char full[2048];
+        full_path(full, sizeof full, sing_root(), file);
+        FILE *f = rel_ok(file) && music_type(file) ? sys_fopen(full, "rb") : NULL;
+        if (!f) { send_text(s, "404 Not Found", "text/plain", "no such song\n", 13, NULL); return; }
+        fclose(f);
+        const char *one[1] = { full };
+        audio_play_files(one, 1, 0);
+        send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
+        return;
+    }
+    char yt[32], q[300], url[600];
+    query(path, "yt", yt, sizeof yt);
+    query(path, "q", q, sizeof q);
+    bool ok = false;
+    if (yt[0])
+    {
+        if (!ok_id(yt)) { send_text(s, "400 Bad Request", "text/plain", "not a video id\n", 15, NULL); return; }
+        snprintf(url, sizeof url, "https://www.youtube.com/watch?v=%s", yt);
+        ok = plat_open_url(url);
+    }
+    else if (q[0])
+    {
+        // only what a search needs: letters, digits, %xx, + (no other schemes, no paths)
+        for (char *p = q; *p; p++)
+            if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '%' || *p == '+' || *p == '-' || *p == '.' || *p == '_'))
+                *p = '+';
+        for (char *p = q; *p; p++) if (*p == '+') *p = ' ';
+        char e[600] = "";
+        for (char *p = q; *p; p++) { if (*p == ' ') strcat(e, "%20"); else strncat(e, p, 1); if (strlen(e) > 560) break; }
+        snprintf(url, sizeof url, "spotify:search:%s", e);
+        ok = plat_open_url(url);
+        if (!ok) { snprintf(url, sizeof url, "https://open.spotify.com/search/%s", e); ok = plat_open_url(url); }
+    }
+    else { send_text(s, "400 Bad Request", "text/plain", "yt= or q=\n", 10, NULL); return; }
+    if (!ok) { send_text(s, "502 Bad Gateway", "text/plain", "could not open it\n", 18, NULL); return; }
+    audio_follow_system();
+    send_text(s, "200 OK", "text/plain", "ok\n", 3, NULL);
 }
 
 // ---------------------------------------------------------------- PicoAmp for the web, from this PC
@@ -1209,7 +1380,7 @@ static int client_main(void *arg)
     else if (!strcmp(p0, "/sing/open")) sing_open(s, path);
     else if (!strncmp(p0, "/usdb/", 6)) usdb_bridge(s, p0 + 6, path);
     else if (!strncmp(p0, "/pics/", 6)) pics_bridge(s, p0 + 6, path, NULL, false);
-    else if (!strncmp(p0, "/music/", 7))
+    else if (!strncmp(p0, "/music/", 7) || !strcmp(p0, "/sing/list") || !strcmp(p0, "/sing/songs") || !strcmp(p0, "/sing/file"))
     {
         // (the Range asked: its line of the request)
         char range[96] = "";
@@ -1222,7 +1393,8 @@ static int client_main(void *arg)
             while (r[k] && r[k] != '\r' && r[k] != '\n' && k + 1 < sizeof range) { range[k] = r[k]; k++; }
             range[k] = 0;
         }
-        pics_bridge(s, p0 + 7, path, range[0] ? range : NULL, true);
+        if (p0[1] == 's') sing_files(s, p0 + 6, path, range[0] ? range : NULL);
+        else pics_bridge(s, p0 + 7, path, range[0] ? range : NULL, true);
     }
     else if (!strcmp(p0, "/web") || !strncmp(p0, "/web/", 5)) web_app(s, path);
     else if (!strcmp(p0, "/") || !strcmp(p0, "/stream.mp3") || !strcmp(p0, "/stream") || !strcmp(p0, "/;")) stream(s, meta);

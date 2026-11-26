@@ -384,6 +384,12 @@ sed -i "s|^msx_port = .*|msx_port = $LP|" $T/cfg/picoamp.ini
 mkdir -p "$T/Pics/Trip one" && cp msx_cover.jpg "$T/Pics/Trip one/Beach.jpg" && echo x > "$T/Pics/notes.txt" && cp msx_cover.jpg "$T/Pics/.hidden.jpg"
 mkdir -p "$T/Songs/Album one" && head -c 300000 /dev/urandom > "$T/Songs/Album one/Song.mp3" && cp msx_cover.jpg "$T/Songs/Album one/cover.jpg" && echo x > "$T/Songs/Album one/notes.txt"
 sed -i "s|^music = .*|music = $PWD/$T/Songs|" $T/cfg/picoamp.ini
+mkdir -p "$T/Songs/Karaoke/ABBA - Waterloo" "$T/Songs/Karaoke/Duets/Two - Of Us" "$T/Songs/Karaoke/PICOSING"
+printf '\357\273\277#TITLE:Waterloo\r\n#ARTIST:ABBA\r\n#MP3:Waterloo.mp3\r\n#BPM:300\r\n#GAP:100\r\n: 0 2 5 Wa\r\nE\r\n' > "$T/Songs/Karaoke/ABBA - Waterloo/ABBA - Waterloo.txt"
+head -c 50000 /dev/urandom > "$T/Songs/Karaoke/ABBA - Waterloo/Waterloo.mp3"
+printf '#TITLE:Of Us\n#ARTIST:Caf\303\251\tTwo\n#BPM:200\nP1\n: 0 1 1 a\nP2\n: 2 1 1 b\nE\n' > "$T/Songs/Karaoke/Duets/Two - Of Us/song.txt"
+printf '#TITLE:Mine\n#BPM:100\n' > "$T/Songs/Karaoke/PICOSING/x.txt"
+printf '#TITLE:Root\n#BPM:100\n' > "$T/Songs/Karaoke/root.txt"
 if grep -q '^pictures = ' $T/cfg/picoamp.ini; then sed -i "s|^pictures = .*|pictures = $PWD/$T/Pics|" $T/cfg/picoamp.ini; else printf '[pictures]\npictures = %s\n' "$PWD/$T/Pics" >> $T/cfg/picoamp.ini; fi
 PICOAMP_WEBAPP=http://127.0.0.1:18960/ PICOAMP_CONFIG=$T/cfg timeout 30 $BIN "msxlink on; wait 9000; msxlink off" > /dev/null 2>&1 &
 APP=$!
@@ -399,9 +405,24 @@ br=$(curl -s "http://127.0.0.1:$LP/sonos/rooms"; echo; curl -s "http://127.0.0.1
      tail -c +1001 "$T/Songs/Album one/Song.mp3" | head -c 1000 > $T/part.bin;
      echo "part $(curl -s -H 'Range: bytes=1000-1999' "http://127.0.0.1:$LP/music/file?path=Album%20one/Song.mp3" | cmp - $T/part.bin >/dev/null && echo same)";
      echo "end $(curl -s -H 'Range: bytes=-128' "http://127.0.0.1:$LP/music/file?path=Album%20one/Song.mp3" | wc -c)";
-     echo "mup $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/music/file?path=../x.mp3")")
+     echo "mup $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/music/file?path=../x.mp3")";
+     echo "sing:"; curl -s "http://127.0.0.1:$LP/sing/songs?path=Karaoke" | tr '\t' '|'; echo "slist:"; curl -s "http://127.0.0.1:$LP/sing/list?path=Karaoke";
+     echo "stxt $(curl -s "http://127.0.0.1:$LP/sing/file?path=Karaoke/ABBA%20-%20Waterloo/ABBA%20-%20Waterloo.txt" | cmp - "$T/Songs/Karaoke/ABBA - Waterloo/ABBA - Waterloo.txt" >/dev/null && echo same)";
+     curl -si -H 'Range: bytes=100-199' "http://127.0.0.1:$LP/sing/file?path=Karaoke/ABBA%20-%20Waterloo/Waterloo.mp3" | tr -d '\r' | grep -a -i '^HTTP\|^content-range' | sed 's/^/s/';
+     echo "sup $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/sing/list?path=Karaoke/..")";
+     echo "sopen $(curl -s "http://127.0.0.1:$LP/sing/open?file=Karaoke/ABBA%20-%20Waterloo/Waterloo.mp3")";
+     echo "snone $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/sing/open?file=Karaoke/none.mp3")";
+     echo "stxtopen $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$LP/sing/open?file=Karaoke/root.txt")")
 wait $APP || true
 kill $WEBAPP 2>/dev/null || true
+check "picosing folders: the songs, 4 deep, with artist, title and duet (not the root's .txt nor PICOSING's)" "$(echo "$br" | sed -n '/^sing:/,/^slist:/p' | sort | tr '\n' '~')" '^Karaoke/ABBA - Waterloo/ABBA - Waterloo.txt|ABBA|Waterloo|0~Karaoke/Duets/Two - Of Us/song.txt|Café Two|Of Us|1~sing:~slist:~$'
+check "picosing folders: a folder's list" "$br" "^d ABBA - Waterloo"
+check "picosing folders: a .txt" "$br" "^stxt same"
+check "picosing folders: Range" "$br" "^sContent-Range: bytes 100-199/50000"
+check "picosing folders: nothing above" "$br" "^sup 403"
+check "picosing folders: this player plays the song" "$br" "^sopen ok"
+check "picosing folders: no such song" "$br" "^snone 404"
+check "picosing folders: only music is played" "$br" "^stxtopen 404"
 check "sonos bridge: the rooms" "$br" '"rooms":\[{"id":"RINCON_B","name":"Kitchen + 1","members":2},{"id":"RINCON_A","name":"Living Room","members":1}\]'
 check "sonos bridge: a room now" "$br" '"app":"Sonos Living Room","title":"Fake Song 2","artist":"Fake Artist"'
 check "sonos bridge: a key" "$(curl -s http://127.0.0.1:18910/log | tail -3)" "^Living Room Pause"

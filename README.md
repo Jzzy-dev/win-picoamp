@@ -47,7 +47,15 @@ PicoAmp can be the screen and remote of music it does not play itself, and pass 
   * `/sing/open?yt=<id>` opens the song's YouTube video in the browser and follows it.
   * `/sing/open?q=<artist title>` opens a Spotify search: in the Spotify app, else in the web player.
   * PicoSing then follows the player's time on `/screen`, and sends pause, seek and volume on `/cmd`.
-  * The MSX link opens only YouTube videos and Spotify searches, nothing else.
+  * The MSX link opens only YouTube videos and Spotify searches, nothing else (and the songs below).
+* **PicoSing's songs on this PC:** PicoSing's song folder can be a folder on this PC (PC FOLDERS
+  on the MSX). The songs are UltraStar folders (the `.txt`, its MP3, its cover) under the music
+  folder, or under `karaoke =` in `[usdb]` in `picoamp.ini`:
+  * `/sing/list?path=` lists a folder, `/sing/songs?path=` lists the songs in it (4 folders deep,
+    with artist, title and whether it is a duet), and `/sing/file?path=` sends a file (Range works).
+  * `/sing/open?file=<the MP3>` plays the song in this player. PicoSing follows its time as with
+    YouTube, and the sound comes from this PC.
+  * Nothing above that folder can be asked for.
 * **USDB for the MSX:** when PicoSing's WiFi can't reach usdb.animux.de (the songs' notes and
   words), this PC fetches the pages for it:
   * The endpoints are `/usdb/login`, `/usdb/list`, `/usdb/txt` and `/usdb/cover`.
